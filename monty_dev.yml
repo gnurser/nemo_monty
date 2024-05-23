@@ -1,0 +1,24 @@
+# If no conda then first install miniforge from
+# https://github.com/conda-forge/miniforge?tab=readme-ov-file#mambaforge
+
+#wget "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
+#bash Miniforge3-$(uname)-$(uname -m).sh
+
+# To use:
+#   $ mamba env create -f nemo_eos_dev.yml  # `mamba` works too for this command
+#   $ mamba activate nemo_eos_dev
+#
+name: monty_dev
+channels:
+  - conda-forge
+dependencies:
+  - compilers  # Currently unavailable for Windows. Comment out this line and download Rtools and add <path>\ucrt64\bin\ to your path: https://cran.r-project.org/bin/windows/Rtools/rtools40.html
+  # See https://github.com/conda-forge/compilers-feedstock
+  - meson-python
+  - numpy
+  - netcdf4
+  - numba
+  - pkg-config
+  - pybind11
+  - python==3.10
+  - cython>=3.0.4
