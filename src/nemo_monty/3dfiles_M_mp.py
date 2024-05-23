@@ -13,8 +13,8 @@ import time
 from numba import jit
 import math
 
-from monty.gridstuff import RealGridStuff
-import monty.findnemo as findnemo
+from nemo_monty.gridstuff import RealGridStuff
+import nemo_monty.findnemo as findnemo
 from nemo_eos.nemo_rho import eos
 import bp
 
@@ -768,7 +768,7 @@ class Montgomery(Rho):
         self.kmt = (~(self.Tmask)).astype(np.int32).sum(-1).astype(np.int32)
         self.Falsemask = self.kmt < 0
 
-        from monty.interp import interp
+        from nemo_monty.interp import interp
         # interpolate4, interpolate8, mginterpolate4, mginterpolate8,siginterpolate4
         print( 'in Montgomery dtype is',self.dtype)
         if self.dtype == np.float32:

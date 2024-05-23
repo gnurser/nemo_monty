@@ -1,4 +1,4 @@
-project('monty', 'c',
+project('nemo_monty', 'c',
   version : '0.1',
   license: 'BSD-3',
   meson_version: '>= 1.1.0',
@@ -37,18 +37,18 @@ inc_np = include_directories(incdir_numpy, incdir_f2py)
 fortranobject_c = incdir_f2py / 'fortranobject.c'
 
 interp_source = custom_target('interpmodule.c',
-  input : ['src/monty/fortran/interp.F90'],
+  input : ['src/nemo_monty/fortran/interp.F90'],
   output : ['interpmodule.c', 'interp-f2pywrappers2.f90'],
   command : [py, '-m', 'numpy.f2py', '@INPUT@', '-m', 'interp', '--lower']
 )
 bp_source = custom_target('bpmodule.c',
-  input : ['src/monty/fortran/bp.F90'],
+  input : ['src/nemo_monty/fortran/bp.F90'],
   output : ['bpmodule.c', 'bp-f2pywrappers2.f90'],
   command : [py, '-m', 'numpy.f2py', '@INPUT@', '-m', 'bp', '--lower']
 )
 py.extension_module('bp',
   [
-    'src/monty/fortran/bp.F90', bp_source
+    'src/nemo_monty/fortran/bp.F90', bp_source
   ],
   fortranobject_c,
   include_directories: inc_np,
@@ -56,12 +56,12 @@ py.extension_module('bp',
   link_args : ['-lgomp'],
   install : true,
   # install_rpath: '/Users/agn/miniforge3/envs/big/lib',
-  subdir: 'monty'
+  subdir: 'nemo_monty'
 )
 
 py.extension_module('interp',
   [
-    'src/monty/fortran/interp.F90', interp_source
+    'src/nemo_monty/fortran/interp.F90', interp_source
   ],
   fortranobject_c,
   include_directories: inc_np,
@@ -69,13 +69,13 @@ py.extension_module('interp',
   link_args : ['-lgomp'],
   install : true,
   # install_rpath: '/Users/agn/miniforge3/envs/big/lib',
-  subdir: 'monty'
+  subdir: 'nemo_monty'
 )
 
 python_sources = [
-  'src/monty/__init__.py', 'src/monty/3dfiles_M_mp.py',
-  'src/monty/findnemo.py', 'src/monty/gridstuff.py']
-py.install_sources(python_sources, subdir: 'monty')
+  'src/nemo_monty/__init__.py', 'src/nemo_monty/3dfiles_M_mp.py',
+  'src/nemo_monty/findnemo.py', 'src/nemo_monty/gridstuff.py']
+py.install_sources(python_sources, subdir: 'nemo_monty')
 
 
 #-mtune=native -march=native
