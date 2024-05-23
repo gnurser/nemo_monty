@@ -9,7 +9,7 @@ from argparse import ArgumentParser
 
 def recursive_glob(rootdir='.', suffix='',excludes=[]):
     paths = []
-    domain_ends = ['mask.nc','mesh_zgr.nc','mesh_hgr.nc']
+    # domain_ends = ['mask.nc','mesh_zgr.nc','mesh_hgr.nc']
     for rootdir, dirnames, filenames in os.walk(rootdir,followlinks=True):
        for exclude in excludes:
             if exclude in dirnames:
