@@ -1432,7 +1432,7 @@ if __name__ == '__main__':
     parser.add_argument('--meshdir',dest='meshdir',
                         help='name of mesh directory; can be set from environment variable MESHDIR',default=None)
     parser.add_argument('--meshfile',dest='meshdfile',
-                        help='name of meshfile inside mesh directory'
+                        help='name of meshfile inside mesh directory')
     args = parser.parse_args()
     eos.set_eos_threads(args.nthreads)
     if args.meshdir is None:
@@ -1563,7 +1563,7 @@ if __name__ == '__main__':
     else:
         meshdir = args.meshdir
     meshes = gridgen.find_meshes(meshkeys,meshdir,hslice,
-                                 wide_hslice=wide_hslice,meshfile=args.nmeshfile, meshbnds=not args.no_bounds)
+                                 wide_hslice=wide_hslice,meshfile=args.meshfile, meshbnds=not args.no_bounds)
     # print meshes
 
     # data = {}
