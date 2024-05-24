@@ -164,13 +164,17 @@ class RealGridStuff(GridStuff):
             return Nd[slice]
 
 
-    def set_meshdict(self,run,meshvbles,grid,verbose=False):
+    def set_meshdict(self,run,meshvbles,grid, meshfile=None, verbose=False):
         hslice,wide_hslice = self.hslice,self.wide_hslice
         meshdict = {}
         meshdict['fext'] = self.fextgrid[grid]
         if isinstance(run,str):
             run = DomainFiles(run)
-        for meshtype in ['mask','mesh_hgr','mesh_zgr']:
+        if meshfile is None:
+            meshfiles = ['mask','mesh_hgr','mesh_zgr']
+        else:
+            meshfiles = [meshfile]
+        for meshtype in meshfiles:
             meshpath = run(fext=meshtype)
             if os.access(meshpath, os.R_OK):
                 f = netCDF4.Dataset(meshpath)
@@ -244,7 +248,7 @@ class RealGridStuff(GridStuff):
             f.close()
         return meshdict
 
-    def find_meshes(self,meshkeys,meshdir,hslice,wide_hslice=None,meshbnds=False,verbose=False):
+    def find_meshes(self,meshkeys,meshdir,hslice,wide_hslice=None,meshfile=None, meshbnds=False,verbose=False):
         meshkeys.append('fext')
         meshkeys = list(set(meshkeys))
         print(meshkeys)
@@ -256,7 +260,7 @@ class RealGridStuff(GridStuff):
         self.hslice = hslice
         self.wide_hslice = wide_hslice
         for grid in self.grids:
-            meshdict = self.set_meshdict(meshdir,meshkeys,grid,verbose=verbose)
+            meshdict = self.set_meshdict(meshdir,meshkeys,grid, meshfile=meshfile, verbose=verbose)
             meshes[grid] = Mesh(**meshdict)
         self.wfile.close()
         print('full details of grids in file gridinfo.txt')
