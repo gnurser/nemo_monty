@@ -1431,7 +1431,7 @@ if __name__ == '__main__':
                         help='number of threads for EOS; 16 is good for workstations')
     parser.add_argument('--meshdir',dest='meshdir',
                         help='name of mesh directory; can be set from environment variable MESHDIR',default=None)
-    parser.add_argument('--meshfile',dest='meshdfile',
+    parser.add_argument('--meshfile',dest='meshfile',
                         help='name of meshfile inside mesh directory')
     args = parser.parse_args()
     eos.set_eos_threads(args.nthreads)
