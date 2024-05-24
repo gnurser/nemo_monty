@@ -4,5 +4,7 @@ README.html
 builddir
 *~
 *.o
+gridinfo.txt
+*.nc
 
 
