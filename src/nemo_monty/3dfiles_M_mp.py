@@ -97,20 +97,20 @@ def change_str(in_str,**kwargs):
     return in_str
 
 
-nemo_mean_names = {'T':u'votemper','mld':u'somxl010','ssh':u'sossheig','S':u'vosaline',
-             'Hin':u'sohefldo','EmP':u'sowaflup','EmPs':u'sowaflcd',
-             'sss':u'sosaline','sst':u'sosstsst',
-             'u':u'vozocrtx','age':u'Age','PWT':'PWT','lspv':u'volspv','sigi':u'vosigmai'}
-nemo_restart_names = {'T':u'tn','ssh':u'ssh_m','S':u'sn',
-             'sss':u'sss_m','sst':u'sstm',
-             'u':u'un','hice':u'hicif','hsnow':u'hsnif','aice':u'frld'}
-nemo_names = {'T':{u'votemper',u'tn',u'potemp'},'mld':{u'somxl010'},'ssh':{u'sossheig',u'ssh_m',u'ssh'},
-                  'S':{u'vosaline',u'sn',u'salin'},
-             'Hin':{u'sohefldo'},'EmP':{u'sowaflup'},'EmPs':{u'sowaflcd'},
-             'sss':{u'sosaline',u'sss_m', u'sss'},'sst':{u'sosstsst',u'sstm',u'sst'},
-             'u':{u'vozocrtx','un'},'age':{u'Age'},'PWT':{u'PWT'},
-                  'lspv':{u'volspv'},'sigi':{u'vosigmai'},
-                  'hice':{u'hicif'},'hsnow':{u'hsnif'},'aice':{u'frld'} }
+nemo_mean_names = {'T':'votemper','mld':'somxl010','ssh':'sossheig','S':'vosaline',
+             'Hin':'sohefldo','EmP':'sowaflup','EmPs':'sowaflcd',
+             'sss':'sosaline','sst':'sosstsst',
+             'u':'vozocrtx','age':'Age','PWT':'PWT','lspv':'volspv','sigi':'vosigmai'}
+nemo_restart_names = {'T':'tn','ssh':'ssh_m','S':'sn',
+             'sss':'sss_m','sst':'sstm',
+             'u':'un','hice':'hicif','hsnow':'hsnif','aice':'frld'}
+nemo_names = {'T':{'votemper','tn','potemp','thetao_con'},'mld':{'somxl010','somxzint1'},'ssh':{'sossheig','ssh_m','ssh','zos'},
+                  'S':{'vosaline','sn','salin','so_abs'},
+             'Hin':{'sohefldo','hfds'},'EmP':{'sowaflup'},'EmPs':{'sowaflcd'},
+             'sss':{'sosaline','sss_m', 'sss','sos_abs'},'sst':{'sosstsst','sstm','sst','tos_con'},
+             'u':{'vozocrtx','un'},'age':{'Age'},'PWT':{'PWT'},
+                  'lspv':{'volspv'},'sigi':{'vosigmai'},
+                  'hice':{'hicif'},'hsnow':{'hsnif'},'aice':{'frld'} }
 nemo_dimensions ={'T':3,'mld':2,'ssh':2,'S':3,
              'Hin':2,'THin':2,'EmP':2,'EmPs':2,
              'sss':2,'sst':2,
