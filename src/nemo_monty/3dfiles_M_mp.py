@@ -1408,7 +1408,7 @@ if __name__ == '__main__':
 
     parser.add_argument('-t','--tracers', dest='mtracers',help='names of mean tracers to read',nargs= '*',default=[])
     parser.add_argument('--passive_s',dest='passive_s',help='names of output passive tracers on surfaces ',nargs='*',default=[])
-    parser.add_argument('-x','--xtracers',dest='xtracers',help='names of calculated tracersto output ',nargs= '*',default=[])
+    parser.add_argument('-x','--xtracers',dest='xtracers',help='names of calculated tracers to output ',nargs= '*',default=[])
     
     parser.add_argument('--density',dest='density',
                         help='layer density for layer output',type=float,default=None)
