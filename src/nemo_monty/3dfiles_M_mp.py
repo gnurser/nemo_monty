@@ -1394,7 +1394,32 @@ class JacobianAngle(JacobianDepth):
 
 
 if __name__ == '__main__':
-    parser = ArgumentParser(description='Output SPG and STG indices')
+    parser = ArgumentParser(description='Output various NEMO diagnostics')
+
+    parser.add_argument('--meshdir',dest='meshdir',
+                        help='name of mesh directory; can be set from environment variable MESHDIR',default=None)
+    parser.add_argument('--meshfile',dest='meshfile',
+                        help='name of meshfile inside mesh directory')
+    
+    parser.add_argument('--infile',dest='infile',
+                        help='path of  data file to read',default=None)
+    parser.add_argument('--hlimits',dest='hlimits',
+                        help='horizontal limits',nargs=4,type=int,default=[1,-1,1,-1])
+
+    parser.add_argument('-t','--tracers', dest='mtracers',help='names of mean tracers to read',nargs= '*',default=[])
+    parser.add_argument('--passive_s',dest='passive_s',help='names of output passive tracers on surfaces ',nargs='*',default=[])
+    parser.add_argument('-x','--xtracers',dest='xtracers',help='names of calculated tracersto output ',nargs= '*',default=[])
+    
+    parser.add_argument('--density',dest='density',
+                        help='layer density for layer output',type=float,default=None)
+    parser.add_argument('--TS0',dest='TS0',
+                        help='initial guess for T0 and S0 on density layer',nargs=2,type=float,default=None)
+    parser.add_argument('--neos',dest='neos',type=int,default=2,
+                        help='choose EOS: -1=> old Jackett McDougall, 0=> poly EOS-80, 2=> TEOS-10')
+    parser.add_argument('--nthreads',dest='nthreads',type=int,default=4,
+                        help='number of threads for EOS; 16 is good for workstations')
+    parser.add_argument('--dims',dest='dims',help='dimensions in output cdf file',nargs='+',default = ['t','z','y','x'])
+    
     parser.add_argument('-r',dest='runname',help='Run name',default='ORCA1-N403')
     parser.add_argument('--xroot',dest='xroots',help='Extra root directories',nargs= '*',default=None)
     parser.add_argument('--refresh',dest='refresh',help='refresh cache?',
@@ -1404,35 +1429,15 @@ if __name__ == '__main__':
                         help='do not output meshbounds',action='store_true',default=False)
     parser.add_argument('--checkmask',dest='checkmask',
                         help='always use mask from mask.nc',action='store_true',default=False)
-    parser.add_argument('--dims',dest='dims',help='dimensions in output cdf file',nargs='+',default = ['t','z','y','x'])
     parser.add_argument('-y0',dest='year00',help='first year of dataset',type=int,default=1948)
-    parser.add_argument('--passive_s',dest='passive_s',help='names of output passive tracers on surfaces ',nargs='*',default=[])
     parser.add_argument('--pass',dest='passno',type=int,help='pass number',nargs='*',default=None)
     parser.add_argument('-m','--months',dest='months',
                         help='months to save',nargs= '*',type=int,default=None)
     parser.add_argument('-d','--days',dest='days',
                         help='days to save',nargs= '*',type=int,default=None)
-    parser.add_argument('--density',dest='density',
-                        help='layer density for layer output',type=float,default=None)
-    parser.add_argument('--TS0',dest='TS0',
-                        help='initial guess for T0 and S0 on density layer',nargs=2,type=float,default=None)
     parser.add_argument('-o',dest='outdir',help='directory of output file',default='.')
-    parser.add_argument('-t',dest='mtracers',help='name of mean tracers to read',nargs= '*',default=[])
     parser.add_argument('--restarts',dest='rtracers',
                         help='name of restart tracers to read',nargs= '*',default=[])
-    parser.add_argument('-x',dest='xtracers',help='names of output tracers ',nargs= '*',default=[])
-    parser.add_argument('--hlimits',dest='hlimits',
-                        help='horizontal limits',nargs=4,type=int,default=[1,-1,1,-1])
-    parser.add_argument('--infile',dest='infile',
-                        help='path of example data file to read',default=None)
-    parser.add_argument('--neos',dest='neos',type=int,default=2,
-                        help='choose EOS: -1=> old Jackett McDougall, 0=> poly EOS-80, 2=> TEOS-10')
-    parser.add_argument('--nthreads',dest='nthreads',type=int,default=4,
-                        help='number of threads for EOS; 16 is good for workstations')
-    parser.add_argument('--meshdir',dest='meshdir',
-                        help='name of mesh directory; can be set from environment variable MESHDIR',default=None)
-    parser.add_argument('--meshfile',dest='meshfile',
-                        help='name of meshfile inside mesh directory')
     args = parser.parse_args()
     eos.set_eos_threads(args.nthreads)
     if args.meshdir is None:
