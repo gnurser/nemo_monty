@@ -92,14 +92,14 @@ Here we focus on diagnostics of Montgomery function, potential density temperatu
 ```
 (big) ~/VC_packages/nemo_monty (main) cd /noc/msm/scratch/nemo2/agn/ARCTIC
 (big) /noc/msm/scratch/nemo2/agn/ARCTIC (main) export R12=/noc/msm/working/poles_apart/GO8p7/eORCA12
-(big) /noc/msm/scratch/nemo2/agn/ARCTIC (main)$ 3dfiles_M_mp.py --meshdir $R12/../../stefryn --meshfile mesh_mask_CLASS-MEDUSA \
+(big) /noc/msm/scratch/nemo2/agn/ARCTIC (main)$ 3dfiles_M_mp.py --meshdir $R12/../../stefryn --meshfile mesh_mask_CLASS-MEDUSA.nc \
 --infile $R12/monthly/nemo_g8p7ho_1m_202112-202112_grid-T.nc \
 --hlimits 2500 3000 1000 2000  --tracers ssh T S \
 --xtracers z_s sigma_s sigma_med_s T_s S_s mont  \
 --density 26.5 --TS0 2. 34.5 --nthreads 1 --neos 2 --dims t y x -r GO8p7
 ```
-This outputs a file `GO8p7__z_sigma_sigma_med_T_S_mont_26.5.nc` with properties on the `r_b=26.5` isopycnal surface: `z`, `sigma`, `sigma_med` (`sigma` referenced to the mean height of the surface), `T`, `S` and Montogomery function `mont`
-Note that a meshfile is required including the `dep` variables as well as `mask` and `maskutil`; the `domain_cfg.nc` file is insufficent.
+This outputs a file `GO8p7__z_sigma_sigma_med_T_S_mont_26.5.nc` with properties on the `r_b=26.5` isopycnal surface: `z`, `sigma`, `sigma_med` (`sigma` referenced to the median height of the surface), `T`, `S` and Montogomery function `mont`
+Note that a meshfile is required that includes the `dep` variables as well as `mask` and `maskutil`; the `domain_cfg.nc` file is insufficent. Note also that the `nc` suffix for the meshfile is currently not 
 
 
 
