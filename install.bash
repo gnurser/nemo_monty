@@ -6,3 +6,4 @@ function run_build(){
     meson compile -C builddir
     meson install -C builddir
     }
+run_build
