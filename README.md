@@ -37,7 +37,7 @@ Check that  `3dfiles_M_mp.py` can be found:
 ```
    which 3dfiles_M_mp.py
 ```
-The directory enclosing this symbolic link is include in your `$PATH` when the `big` (or otherwise named) environment is activated by `mamba`.
+The directory enclosing this symbolic link is included in your `$PATH` when the `big` (or otherwise named) environment is activated by `mamba`.
 
 ## Usage
 Running ` 3dfiles_M_mp.py --help` will give full details of all the available options:
