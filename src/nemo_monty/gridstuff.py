@@ -176,6 +176,9 @@ class RealGridStuff(GridStuff):
             meshfiles = [meshfile]
         for meshtype in meshfiles:
             meshpath = run(fext=meshtype)
+            if meshpath[-6:]=='.nc.nc':
+                meshpath = meshpath[:-3]
+            
             if os.access(meshpath, os.R_OK):
                 f = netCDF4.Dataset(meshpath)
                 if verbose:
