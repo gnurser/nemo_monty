@@ -99,7 +99,7 @@ Here we focus on diagnostics of Montgomery function, potential density temperatu
 --density 26.5 --TS0 2. 34.5 --nthreads 1 --neos 2 --dims t y x -r GO8p7
 ```
 Note R12 must be defined! 3dfiles_M_mp.p outputs a file `GO8p7__z_sigma_sigma_med_T_S_mont_26.5.nc` with properties on the `r_b=26.5` isopycnal surface: `z`, `sigma`, `sigma_med` (`sigma` referenced to the median height of the surface), `T`, `S` and Montogomery function `mont`
-Note that a meshfile is required that includes the `dep` variables as well as `mask` and `maskutil`; the `domain_cfg.nc` file is insufficent. Note also that the `nc` suffix for the meshfile is currently not 
+Note that a meshfile is required that includes the `dep` variables as well as `mask` and `maskutil`; the `domain_cfg.nc` file is insufficent.
 
 
 
