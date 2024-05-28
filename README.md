@@ -4,12 +4,7 @@ Provides executable python script `3dfiles_M_mp.py` that can produce a variety o
 
 ## Pre-installation
 
-Follow the installation instructions for the `nemo_eos` package. Then, assuming that the mamba python environment into which `nemo_eos` has been installed is `big`, move into this environment (if it's something else, use that instead).
-
-```
-   mamba activate big
-```
-
+Follow the installation instructions for the `nemo_eos` package.
 
 ## Installation
 
@@ -19,10 +14,10 @@ First go into parent directory into which you want to download the package.
     cd /path/to/parent
 ```
 
-Then activate `big` environment if not previously done
+ Then, assuming that the mamba python environment into which `nemo_eos` has been installed is `big`, move into this environment (if it's something else, use that instead).
 
 ```
-    mamba activate big
+   mamba activate big
 ```
 
 Then git clone the source from github and move into new directory
@@ -42,6 +37,7 @@ Check that  `3dfiles_M_mp.py` can be found:
 ```
    which 3dfiles_M_mp.py
 ```
+The directory enclosing this symbolic link is added to your `$PATH` while the `big` (or otherwise named) environment is activated by `mamba`.
 
 ## Usage
 Running ` 3dfiles_M_mp.py --help` will give full details of all the available options:
@@ -66,7 +62,7 @@ options:
   --passive_s [PASSIVE_S ...]
                         names of output passive tracers on surfaces
   -x [XTRACERS ...], --xtracers [XTRACERS ...]
-                        names of calculated tracersto output
+                        names of calculated tracers to output
   --density DENSITY     layer density for layer output
   --TS0 TS0 TS0         initial guess for T0 and S0 on density layer
   --neos NEOS           choose EOS: -1=> old Jackett McDougall, 0=> poly EOS-80, 2=> TEOS-10
