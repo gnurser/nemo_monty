@@ -79,7 +79,7 @@ py.install_sources(python_sources, subdir: 'nemo_monty')
 
 installdir = py.get_install_dir()
 
-install_symlink('3dfiles_mp_M.py',install_dir: installdir / '../../../bin'  ,pointing_to: installdir /'nemo_monty/3dfiles_M_mp.py')
+install_symlink('3dfiles_M_mp.py',install_dir: installdir / '../../../bin'  ,pointing_to: installdir /'nemo_monty/3dfiles_M_mp.py')
 
 #-mtune=native -march=native
 #-Wall -Wextra -Wimplicit-interface -fPIC -O3 -march=native -ffast-math -funroll-loops
