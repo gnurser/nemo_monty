@@ -1404,7 +1404,7 @@ if __name__ == '__main__':
     parser.add_argument('--infile',dest='infile',
                         help='path of  data file to read',default=None)
     parser.add_argument('--hlimits',dest='hlimits',
-                        help='horizontal limits',nargs=4,type=int,default=[1,-1,1,-1])
+                        help='horizontal limits; required order is ylo, yhi,xlo,xhi',nargs=4,type=int,default=[1,-1,1,-1])
 
     parser.add_argument('-t','--tracers', dest='mtracers',help='names of mean tracers to read',nargs= '*',default=[])
     parser.add_argument('--passive_s',dest='passive_s',help='names of output passive tracers on surfaces ',nargs='*',default=[])
