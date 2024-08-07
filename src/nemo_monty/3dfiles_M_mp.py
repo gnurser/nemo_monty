@@ -875,6 +875,8 @@ class Montgomery(Rho):
         self.active = active
         self.data.nos = ma.masked_where(d0mask,Mg)
         self.z_s = ma.masked_where(d0mask,z_s)
+        self.incrop_s = incropmask
+        self.outcrop_s = outcropmask
         self.z_median_km = ma.median(self.z_s)*1.e-3
         self.sig_s,self.sig_s_zmed = [ma.masked_where(d0mask,x.T) for x in self.siginterpolate(T.T,S.T,
                                            k_below_s.T,r_above_s.T,active.T, self.depth_km,self.z_median_km)]
@@ -906,6 +908,27 @@ class Z_s(Rho):
     def setlims(self):
         self.data.min, self.data.median, self.data.max = \
           self.data.nos.min(), ma.median(self.data.nos), self.data.nos.max()
+
+class Outcrop_s(object):
+    def __init__(self,name,liked,**kwargs):#,assocd,**kwargs):
+        self.mask = liked.nos.mask
+        self.dtype = bool
+        self.shape = self.mask.shape
+        self._FillValue = 0# -127
+
+        self.data = data_like(liked,name)
+        self.data._FillValue = self._FillValue
+        self.describe(**kwargs)
+    def describe(self,montg_instance=None):
+        self.data.long_name = 'Outcrop region for  r_B = %5.2f' % montg_instance.d0
+        self.data.standard_name = 'Outcrop'
+        self.data.units = '#'
+
+    def calc(self,montg_instance):
+        self.data.nos = montg_instance.outcrop_s
+        self.setlims()
+
+
 
 class K_below_s(object):
     def __init__(self,name,liked,**kwargs):#,assocd,**kwargs):
@@ -1649,7 +1672,8 @@ if __name__ == '__main__':
         idict['mont'] = mgd.data
 
         layerdict = {'k_s':K_below_s,'z_s':Z_s,'sigma_s':Sigma0_s,
-                     'sigma_med_s':SigmaMedian_s,'T_s':T_s,'S_s':S_s}
+                     'sigma_med_s':SigmaMedian_s,'T_s':T_s,'S_s':S_s,
+                     'outcrop_s':Outcrop_s, 'incrop_s':Incrop_s}
         instancedict = {}
         for x,y in layerdict.items():
             if inargs(x):
