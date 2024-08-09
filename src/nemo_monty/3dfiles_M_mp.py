@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from __future__ import print_function
 from os.path import join as pjoin
 import os
 import sys
@@ -154,7 +153,7 @@ class FextTrac(object):
         else:
             for k,v in ftdict.items():
                 print('{%s : %s}' % (k,' '.join(v)), end='')
-            print('\n')
+            #print('\n')
             return ftdict
 
 
@@ -319,7 +318,7 @@ class DCDF4(object):
         #     data.nos = data.nos.data
         # else:
         #     oldmask = None
-        print('checkmask=', self.checkmask)
+        # print('checkmask=', self.checkmask)
 
         if not self.checkmask:
             if not isinstance(data.nos, ma.masked_array):
@@ -427,7 +426,7 @@ class Create3DCDF():
             xNd.positive = 'down'
             xNd.long_name = "NEMO k-index (Fortran numbering)"
 
-        print(dims)
+        #print(dims)
 
         if 't' in dims:
             f.createDimension('time_counter', None)
@@ -529,7 +528,7 @@ class Create3DCDF():
                     depthNd.positive = 'down'
                     depthNd._CoordinateAxisType = "Depth"
                     depthNd[...] = mesh.gdep_0[...]
-            print(f.variables.keys())
+            #print(f.variables.keys())
 
 
     def set_time_index(self,time_index_name):
@@ -554,8 +553,8 @@ class Create3DCDF():
                 fill_value = netCDF4.default_fillvals[tracer.nos.dtype.str[-2:]]
             else:
                 fill_value = tracer._FillValue
-            print(tracer.dimensions)
-            print(self.f.variables.keys())
+            #print(tracer.dimensions)
+            #print(self.f.variables.keys())
             # list_dims = list(tracer.dimensions)
             # if list_dims[0] != 't':
             #     list_dims[0] = 't'
@@ -605,7 +604,7 @@ class Create3DCDF():
         self.time_indexNd[l] = time_index_pp5
         self.dtime_indexNd[l] = dtime
 
-        print( tdict.keys())
+        #print( tdict.keys())
         for tracer in tdict.values():
             tracer.Nd[l,...] = tracer.nos[...].copy()
             trD = tracer.__dict__
@@ -875,7 +874,7 @@ class Montgomery(Rho):
         self.active = active
         self.data.nos = ma.masked_where(d0mask,Mg)
         self.z_s = ma.masked_where(d0mask,z_s)
-        self.incrop_s = incropmask
+        self.incrop_s = groundmask
         self.outcrop_s = outcropmask
         self.z_median_km = ma.median(self.z_s)*1.e-3
         self.sig_s,self.sig_s_zmed = [ma.masked_where(d0mask,x.T) for x in self.siginterpolate(T.T,S.T,
@@ -912,7 +911,7 @@ class Z_s(Rho):
 class Outcrop_s(object):
     def __init__(self,name,liked,**kwargs):#,assocd,**kwargs):
         self.mask = liked.nos.mask
-        self.dtype = bool
+        self.dtype = np.uint8
         self.shape = self.mask.shape
         self._FillValue = 0# -127
 
@@ -925,10 +924,19 @@ class Outcrop_s(object):
         self.data.units = '#'
 
     def calc(self,montg_instance):
-        self.data.nos = montg_instance.outcrop_s
-        self.setlims()
+        self.data.nos = montg_instance.outcrop_s.astype(np.uint8)
+        #self.setlims()
 
+class Incrop_s(Outcrop_s):
 
+    def describe(self,montg_instance=None):
+        self.data.long_name = 'Incrop region for  r_B = %5.2f' % montg_instance.d0
+        self.data.standard_name = 'Incrop'
+        self.data.units = '#'
+
+    def calc(self,montg_instance):
+        self.data.nos = montg_instance.incrop_s.astype(np.uint8)
+        #self.setlims()
 
 class K_below_s(object):
     def __init__(self,name,liked,**kwargs):#,assocd,**kwargs):
@@ -1417,13 +1425,15 @@ class JacobianAngle(JacobianDepth):
 
 
 if __name__ == '__main__':
+    t00 = time.time()
+
     parser = ArgumentParser(description='Output various NEMO diagnostics')
 
     parser.add_argument('--meshdir',dest='meshdir',
                         help='name of mesh directory; can be set from environment variable MESHDIR',default=None)
     parser.add_argument('--meshfile',dest='meshfile',
                         help='name of meshfile inside mesh directory')
-    
+
     parser.add_argument('--infile',dest='infile',
                         help='path of  data file to read',default=None)
     parser.add_argument('--hlimits',dest='hlimits',
@@ -1432,7 +1442,7 @@ if __name__ == '__main__':
     parser.add_argument('-t','--tracers', dest='mtracers',help='names of mean tracers to read',nargs= '*',default=[])
     parser.add_argument('--passive_s',dest='passive_s',help='names of output passive tracers on surfaces ',nargs='*',default=[])
     parser.add_argument('-x','--xtracers',dest='xtracers',help='names of calculated tracers to output ',nargs= '*',default=[])
-    
+
     parser.add_argument('--density',dest='density',
                         help='layer density for layer output',type=float,default=None)
     parser.add_argument('--TS0',dest='TS0',
@@ -1442,7 +1452,7 @@ if __name__ == '__main__':
     parser.add_argument('--nthreads',dest='nthreads',type=int,default=4,
                         help='number of threads for EOS; 16 is good for workstations')
     parser.add_argument('--dims',dest='dims',help='dimensions in output cdf file',nargs='+',default = ['t','z','y','x'])
-    
+
     parser.add_argument('-r',dest='runname',help='Run name',default='ORCA1-N403')
     parser.add_argument('--xroot',dest='xroots',help='Extra root directories',nargs= '*',default=None)
     parser.add_argument('--refresh',dest='refresh',help='refresh cache?',
@@ -1555,6 +1565,10 @@ if __name__ == '__main__':
         return [make_slice(hb) for hb in hboundslist]
 
     hslice,wide_hslice = make_2_slices(args.hlimits)
+    t01 = time.time()
+    print (f'took {t01-t00} to set args')
+    print (f'time at after setting args is {t01-t00}')
+
 
     fexttracm = FextTrac('mean')
     fexttracr = FextTrac('restart')
@@ -1595,6 +1609,9 @@ if __name__ == '__main__':
     # print meshes
 
     # data = {}
+    t0 = time.time()
+    print (f'took {t0-t01} to set meshes')
+    print (f'time at after setting meshes is {t0-t00}')
     tdict = {}
     xdict = {}
 
@@ -1608,11 +1625,15 @@ if __name__ == '__main__':
 
             pathname += fext + '.nc'
 
-                
+
         cdf_file = DCDF4(pathname, checkmask=args.checkmask)
         print(fexttracerd[fext])
         P = cdf_file(fexttracerd[fext], meshes=meshes)
         tdict.update(P)
+
+    t01 = time.time()
+    print (f'took {t01-t0} to set output file')
+    print (f'time at after setting up output file is {t01-t00}')
 
     other_dims_dict = {}
     for dataset in tdict.values():
@@ -1623,6 +1644,10 @@ if __name__ == '__main__':
     other_dims = set(other_dims_dict.keys())
 
     idict = tdict.copy()
+
+    t0 = time.time()
+    print (f'took {t0-t01} to set up dicts')
+    print (f'time at after setting up dicts is {t0-t00}')
 
     if inargs('rho'):
         rho = Rho('rho',tdict['T'], neos=args.neos)
@@ -1657,7 +1682,7 @@ if __name__ == '__main__':
         jacobian_angle = JacobianAngle('jacobian_angle',tdict['T'],meshes)
         jacobian_angle.calc(jacobian_depth)
         idict['jacobian_angle'] = jacobian_angle.data
-  
+
     if inargs('bp'):
         bpd = BottomPressure('bp',tdict['ssh'])
         bpd.working(meshes,tdict['T'])
@@ -1724,6 +1749,10 @@ if __name__ == '__main__':
         SnowWd.calc(tdict['aice'],tdict['hsnow'])
         idict['SnowW'] = SnowWd.data
 
+    t01 = time.time()
+    print (f'took {t01-t0} to calculate variables first')
+    print (f'time  after first calculations is {t01-t00}')
+
     bar2d,bar3d = {},{}
 
     for xbar in inargs.arguments:
@@ -1778,6 +1807,10 @@ if __name__ == '__main__':
         G3FWd.calc(idict['gsS'],idict['gsssh'])
         idict['FWsum'] = G3FWd.data
 
+    t0 = time.time()
+    print (f'took {t0-t01} to calculate sums, means etc')
+    print (f'time  after calculating sums, means etc is {t01-t00}')
+
     for tname in args.xtracers + args.passive_s:
         # print tname
         if tname in idict.keys():
@@ -1794,12 +1827,22 @@ if __name__ == '__main__':
 
 
     outgrids = list({xdict[tname].grid for tname in xdict.keys()})
+
+    t01 = time.time()
+    print (f'took {t01-t0} to set up output variables')
+    print (f'time  after setting up output variables is {t01-t00}')
+
     threedcdf = Create3DCDF(outgrids,meshes,
                           outpath=pjoin(args.outdir,outname),
                           time_index_name='years',dims=args.dims,
                           other_dims_dict = other_dims_dict,density = args.density)
 
     threedcdf.set_tracers(xdict,zlib=True)
+
+    t01 = time.time()
+    print (f'took {t01-t0} to set up output into output file')
+    print (f'time  after setting tracers into output file is {t01-t00}')
+
 
     def do_on_file(p,y,month,day,first):
         if first:
@@ -1886,8 +1929,13 @@ if __name__ == '__main__':
             if inargs('FWsum'):
                 G3FWd.calc(idict['gsS'],idict['gsssh'])
 
+        t03 = time.time()
+        print (f'time  before writing {year, month, day} is {t03-t00}')
         threedcdf(xdict,year,month=month,day=day)
-        
+        t02 = time.time()
+        print (f'took {t02-t03} to write {year, month, day}')
+        print (f'time  after writing {year, month, day} is {t02-t00}')
+
 
     first = True
     for year in years:
@@ -1909,5 +1957,10 @@ if __name__ == '__main__':
             if day is not None:
                 do_on_file(p,y,None,day,first)
                 print(y,p,day, first)
+
+        t0 = time.time()
+        print (f'took {t0-t01} to run year {year}')
+        print (f'time  after running run year {year} is {t0-t00}')
+
 
     threedcdf.close()
