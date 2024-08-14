@@ -615,37 +615,6 @@ class Create3DCDF():
         self.f.close()
 
 
-class Rho(object):
-    def __init__(self,name,liked=None, neos=2, **kwargs):#,assocd,**kwargs):
-        eos.eos_init(neos)
-        self.mask = liked.nos.mask
-        self.dtype = liked.nos.data.dtype
-        self.shape = self.mask.shape
-        self._FillValue = liked._FillValue
-        if self._FillValue is None:
-            self._FillValue, = np.zeros([1],dtype=liked.nos.dtype)
-
-        self.data = data_like(liked,name)
-        self.describe(**kwargs)
-
-    def working(self,meshes):
-        if self.dtype == np.float32:
-            self.eos_insitu_m = eos.eos_insitu4_m
-        elif self.dtype == np.float64:
-            self.eos_insitu_m = eos.eos_insitu4_m
-
-        self.depth = meshes['t'].gdep.ravel()
-
-    def describe(self,**kwargs):
-        self.data.long_name = 'in-situ density - 1000 using NEMO EOS'
-        self.data.standard_name = 'in-situ density'
-        self.data.units = 'kg/m^3'
-
-    def calc(self,Td,Sd):
-        T,S = [x.nos.data.ravel() for x in (Td, Sd)]
-        p = self.depth
-        self.data.nos = ma.masked_where(self.mask,self.eos_insitu_m(self._FillValue,self.mask.ravel(),T,S,p).reshape(self.shape))
-
 class Ddy_sigma(object):
     grid = 'v'
     def __init__(self,name,liked,meshes=None,**kwargs):#,assocd,**kwargs):
@@ -708,6 +677,38 @@ def put_z_inner(x):
     return (x.reshape(nz,-1).T.copy()).reshape(ny,nx,nz)
 
 
+class Rho(object):
+    def __init__(self,name,liked, neos=2, **kwargs):#,assocd,**kwargs):
+        eos.eos_init(neos)
+        self.neos = neos
+        self.mask = liked.nos.mask
+        self.dtype = liked.nos.data.dtype
+        self.shape = self.mask.shape
+        self._FillValue = liked._FillValue
+        if self._FillValue is None:
+            self._FillValue, = np.zeros([1],dtype=liked.nos.dtype)
+
+        self.data = data_like(liked,name)
+        self.describe(**kwargs)
+
+    def working(self,meshes):
+        if self.dtype == np.float32:
+            self.eos_insitu_m = eos.eos_insitu4_m
+        elif self.dtype == np.float64:
+            self.eos_insitu_m = eos.eos_insitu4_m
+
+        self.depth = meshes['t'].gdep.ravel()
+
+    def describe(self, **kwargs):
+        self.data.long_name = 'in-situ density - 1000 using NEMO EOS'
+        self.data.standard_name = 'in-situ density'
+        self.data.units = 'kg/m^3'
+
+    def calc(self,Td,Sd):
+        T,S = [x.nos.data.ravel() for x in (Td, Sd)]
+        p = self.depth
+        self.data.nos = ma.masked_where(self.mask,self.eos_insitu_m(self._FillValue,self.mask.ravel(),T,S,p).reshape(self.shape))
+
 class BoussinesqR(object):
     """
     Instead of steric anomaly uses
@@ -732,7 +733,7 @@ class BoussinesqR(object):
         self.fillvalue = fillvalue
         self.mask = mask.ravel()
 
-    def calculate_rho0(self,T0=None,S0=None):
+    def calculate_drho0(self,T0=None,S0=None):
         if T0 is None:
             T0 = self.T0
         else:
@@ -742,7 +743,7 @@ class BoussinesqR(object):
         else:
             self.S0 = S0
 
-        self.rho0 = self.eos_insitu0_m(self.fillvalue,self.mask,T0,S0,self.depth_km,self.zt).reshape(self.shape)
+        self.drho0 = self.eos_insitu0_m(self.fillvalue,self.mask,T0,S0,self.depth_km,self.zt).reshape(self.shape)
 
     def calculate_rho(self,Tz,Sz,zt=None):
         if zt is None:
@@ -755,7 +756,7 @@ class BoussinesqR(object):
         """
         Outputs r_B in MKS units m^3/kg
         """
-        return (self.rho - self.rho0).reshape(self.shape)
+        return (self.rho - self.drho0).reshape(self.shape)
 
 class Montgomery(Rho):
     def working(self,meshes,Td,T0=0,S0=35.,depth_km=0.,deltaT=None,deltaS=None):
@@ -768,6 +769,7 @@ class Montgomery(Rho):
         self.Falsemask = self.kmt < 0
 
         from nemo_monty.interp import interp
+        interp.eos_init(self.neos)
         # interpolate4, interpolate8, mginterpolate4, mginterpolate8,siginterpolate4
         print( 'in Montgomery dtype is',self.dtype)
         if self.dtype == np.float32:
@@ -806,9 +808,6 @@ class Montgomery(Rho):
         self.data.units = 'm^2s^-2'
         self.d0 = d0
 
-    def trinterpolate(tr,k_below_s,r_above_s,active):
-        return tracer_interpolate(tr,k_below_s,r_above_s,active)
-
     def calc(self,sshd,Td,Sd,trdir={},convect=True,iterate=False,v2=False):
         d0 = self.d0
         depth = self.depth
@@ -830,15 +829,15 @@ class Montgomery(Rho):
         while True:
             t2 = time.time()
             if self.first:
-                self.rb.calculate_rho0(T0,S0)
+                self.rb.calculate_drho0(T0,S0)
             t4 = time.time()
-            print( 'time to calculate rho0 is',t4-t2)
+            print( 'time to calculate drho0 is',t4-t2)
             # d3 = self.rb()
             t3 = time.time()
             print( 'time to calculate d is',t3-t4)
             print( self.kmt.min())
             k_below_s,r_above_s,T_s,S_s,outcropmask,groundmask = \
-              [x.T for x in self.interpolate(self.kmt.T,T.T,S.T,self.rb.rho.T,self.rb.rho0.T,d0)]
+              [x.T for x in self.interpolate(self.kmt.T,T.T,S.T,self.rb.rho.T,self.rb.drho0.T,d0)]
 
             outcropmask,groundmask = outcropmask.astype(bool),groundmask.astype(bool)
             t2 = time.time()
@@ -866,7 +865,7 @@ class Montgomery(Rho):
         t1 = time.time()
         print( 'time to find surface is',t1-t0)
 
-        z_s,Mg = [x.T for x in self.mginterpolate(self.kmt.T,T.T,S.T,self.rb.rho.T,self.rb.rho0.T,sshd.nos.data.T,self.e3w.T,
+        z_s,Mg = [x.T for x in self.mginterpolate(self.kmt.T,T.T,S.T,self.rb.rho.T,self.rb.drho0.T,sshd.nos.data.T,self.e3w.T,
                                                   self.depth.T,k_below_s.T,r_above_s.T,active.T,self.depth_km,d0)]
         t0 = time.time()
         print( 'time to calculate Montgomery',t0-t1)
@@ -888,7 +887,7 @@ class Montgomery(Rho):
         self.tr_s = {}
         for trname,tracer in trdir.items():
             tr = put_z_inner(tracer.nos.data)
-            x = self.trinterpolate(tracer.nos.data,k_below_s,r_above_s,active)
+            x = tracer_interpolate(tracer.nos.data,k_below_s,r_above_s,active)
             self.tr_s[trname] = ma.masked_where(d0mask,x.T)
 
         self.first = False
@@ -1237,7 +1236,7 @@ class Glob3FW(Glob3Sum):
 
 
 class Zon3Av(object):
-    def __init__(self,name,liked=None,**kwargs):#,assocd,**kwargs):
+    def __init__(self,name,liked, **kwargs):#,assocd,**kwargs):
         self.mask = liked.nos.mask
         self.dtype = liked.nos.data.dtype
         self.shape = self.mask.shape
@@ -1430,47 +1429,66 @@ if __name__ == '__main__':
     parser = ArgumentParser(description='Output various NEMO diagnostics')
 
     parser.add_argument('--meshdir',dest='meshdir',
-                        help='name of mesh directory; can be set from environment variable MESHDIR',default=None)
+                        help='name of mesh directory; can be set from environment variable MESHDIR',
+                        default=None)
     parser.add_argument('--meshfile',dest='meshfile',
                         help='name of meshfile inside mesh directory')
 
     parser.add_argument('--infile',dest='infile',
-                        help='path of  data file to read',default=None)
+                        help='list of path of  data files to read; can include wildcard expressions',
+                        nargs= '*',default=[])
     parser.add_argument('--hlimits',dest='hlimits',
-                        help='horizontal limits; required order is ylo, yhi,xlo,xhi',nargs=4,type=int,default=[1,-1,1,-1])
+                        help='horizontal limits; required order is ylo, yhi,xlo,xhi',
+                        nargs=4,type=int,default=[1,-1,1,-1])
 
-    parser.add_argument('-t','--tracers', dest='mtracers',help='names of mean tracers to read',nargs= '*',default=[])
-    parser.add_argument('--passive_s',dest='passive_s',help='names of output passive tracers on surfaces ',nargs='*',default=[])
-    parser.add_argument('-x','--xtracers',dest='xtracers',help='names of calculated tracers to output ',nargs= '*',default=[])
+    parser.add_argument('-t','--tracers', dest='mtracers',help='names of mean tracers to read',
+                        nargs= '*',default=[])
+    parser.add_argument('--passive_s',dest='passive_s',
+                        help='names of output passive tracers on surfaces',
+                        nargs='*',default=[])
+    parser.add_argument('-x','--xtracers',dest='xtracers',
+                        help='names of calculated tracers to output',
+                        nargs= '*',default=[])
 
     parser.add_argument('--density',dest='density',
                         help='layer density for layer output',type=float,default=None)
     parser.add_argument('--TS0',dest='TS0',
-                        help='initial guess for T0 and S0 on density layer',nargs=2,type=float,default=None)
+                        help='initial guess for T0 and S0 on density layer',
+                        nargs=2,type=float,default=None)
     parser.add_argument('--neos',dest='neos',type=int,default=2,
                         help='choose EOS: -1=> old Jackett McDougall, 0=> poly EOS-80, 2=> TEOS-10')
-    parser.add_argument('--nthreads',dest='nthreads',type=int,default=4,
-                        help='number of threads for EOS; 16 is good for workstations')
-    parser.add_argument('--dims',dest='dims',help='dimensions in output cdf file',nargs='+',default = ['t','z','y','x'])
+    parser.add_argument('--nthreads',dest='nthreads',
+                        help='number of threads for EOS; 16 is good for workstations',
+                        type=int,default=4)
+    parser.add_argument('--dims',dest='dims',help='dimensions in output cdf file',
+                        nargs='+',default = ['t','z','y','x'])
 
     parser.add_argument('-r',dest='runname',help='Run name',default='ORCA1-N403')
     parser.add_argument('--xroot',dest='xroots',help='Extra root directories',nargs= '*',default=None)
     parser.add_argument('--refresh',dest='refresh',help='refresh cache?',
                         action='store_true',default=False)
-    parser.add_argument('-y',dest='years',help='last and first years',type=int,nargs='+',default=None)
+    parser.add_argument('-y',dest='years',help='last and first years',
+                        type=int,nargs='+',default=None)
     parser.add_argument('--no_bounds',dest='no_bounds',
-                        help='do not output meshbounds',action='store_true',default=False)
+                        help='do not output meshbounds',
+                        action='store_true',default=False)
     parser.add_argument('--checkmask',dest='checkmask',
-                        help='always use mask from mask.nc',action='store_true',default=False)
-    parser.add_argument('-y0',dest='year00',help='first year of dataset',type=int,default=1948)
-    parser.add_argument('--pass',dest='passno',type=int,help='pass number',nargs='*',default=None)
+                        help='always use mask from mask.nc',
+                        action='store_true',default=False)
+    parser.add_argument('-y0',dest='year00',help='first year of dataset',
+                        type=int,default=1948)
+    parser.add_argument('--pass',dest='passno',help='pass number',
+                        type=int, nargs='*',default=None)
     parser.add_argument('-m','--months',dest='months',
-                        help='months to save',nargs= '*',type=int,default=None)
+                        help='months to save',
+                        nargs= '*',type=int,default=None)
     parser.add_argument('-d','--days',dest='days',
-                        help='days to save',nargs= '*',type=int,default=None)
+                        help='days to save',
+                        nargs= '*',type=int,default=None)
     parser.add_argument('-o',dest='outdir',help='directory of output file',default='.')
     parser.add_argument('--restarts',dest='rtracers',
-                        help='name of restart tracers to read',nargs= '*',default=[])
+                        help='name of restart tracers to read',
+                        nargs= '*',default=[])
     args = parser.parse_args()
     eos.set_eos_threads(args.nthreads)
     if args.meshdir is None:
@@ -1479,7 +1497,8 @@ if __name__ == '__main__':
         except:
             print('meshdir not found from args or environment variable')
             pass
-    if args.infile is None and args.meshdir is None:
+
+    if not args.infile and args.meshdir is None:
         model_run = findnemo.MultiDir(args.runname,xroots=args.xroots,refresh=args.refresh)
 
     if args.years is  None:
@@ -1615,21 +1634,31 @@ if __name__ == '__main__':
     tdict = {}
     xdict = {}
 
+    if args.infile:
+        args.infile.sort()
+        use_infile = True
+        print (f'will process files')
+        print ('\n'.join(args.infile),'\n')
+        infile = args.infile.pop(0)
+    else:
+        use_infile = False
+
     for fext in fexts:
-        if args.infile is None:
-            pathname = model_run(passno=passno0,years=year0,month=months[0],fext=fext,day5=days[0])
-        else:
-            pathname = args.infile[:-3]
+        if use_infile:
+            pathname = infile[:-3]
             while pathname[-1].isalpha():
                 pathname = pathname[:-1]
 
             pathname += fext + '.nc'
+        else:
+            pathname = model_run(passno=passno0,years=year0,month=months[0],fext=fext,day5=days[0])
 
 
         cdf_file = DCDF4(pathname, checkmask=args.checkmask)
         print(fexttracerd[fext])
         P = cdf_file(fexttracerd[fext], meshes=meshes)
         tdict.update(P)
+
 
     t01 = time.time()
     print (f'took {t01-t0} to set output file')
@@ -1690,9 +1719,9 @@ if __name__ == '__main__':
         idict['bp'] = bpd.data
 
     if inargs('mont'):
-        mgd = Montgomery('mont',tdict['ssh'],d0=args.density, neos=args.neos)
+        mgd = Montgomery('mont',tdict['ssh'],neos=args.neos, d0=args.density)
         T0,S0 = args.TS0
-        mgd.working(meshes,tdict['T'],T0,S0)
+        mgd.working(meshes,tdict['T'],T0=T0,S0=S0)
         mgd.calc(tdict['ssh'],tdict['T'],tdict['S'])
         idict['mont'] = mgd.data
 
@@ -1710,7 +1739,7 @@ if __name__ == '__main__':
     passive_s_dict={}
     for x in args.passive_s:
         trname = x[:-2]
-        pp = Passive_s(x,liked=tdict['ssh'],montg_instance=mgd)
+        pp = Passive_s(x,tdict['ssh'],montg_instance=mgd)
         pp.calc(tdict[trname], mgd)
         passive_s_dict[x] = pp
         idict[x] = pp.data
@@ -1840,23 +1869,15 @@ if __name__ == '__main__':
     threedcdf.set_tracers(xdict,zlib=True)
 
     t01 = time.time()
-    print (f'took {t01-t0} to set up output into output file')
-    print (f'time  after setting tracers into output file is {t01-t00}')
+    print (f'took {t01-t0} to set up output details into output file')
+    print (f'time  after setting output details into output file is {t01-t00}')
 
-
-    def do_on_file(p,y,month,day,first):
-        if first:
-            first = False
-        else:
-            for fext in fexts:
-                pathname = model_run(passno=p,years=y,month=month,fext=fext,day5=day)
-                cdf_file = DCDF4(pathname)
-                for t in tdict.keys():
-                    if t in fexttracerd[fext]:
-                        cdf_file.update(idict[t])
-
+    def do_on_file():
             if inargs('rho'):
                 rho.calc(tdict['T'],tdict['S'])
+
+            if inargs('TS'):
+                TS.calc(tdict['T'],tdict['S'])
 
             if inargs('ddy_lspv'):
                 ddy_lspv.calc(tdict['lspv'],meshes)
@@ -1929,38 +1950,85 @@ if __name__ == '__main__':
             if inargs('FWsum'):
                 G3FWd.calc(idict['gsS'],idict['gsssh'])
 
-        t03 = time.time()
-        print (f'time  before writing {year, month, day} is {t03-t00}')
-        threedcdf(xdict,year,month=month,day=day)
-        t02 = time.time()
-        print (f'took {t02-t03} to write {year, month, day}')
-        print (f'time  after writing {year, month, day} is {t02-t00}')
 
-
-    first = True
-    for year in years:
-        if args.passno is not None:
-            dy = year - args.year00
-            y, p = dy % 60 + args.year00, dy/60 + passno0
+    def do_date(p,y,month,day,first):
+        if first:
+            first = False
         else:
-            y = year
-            p = None
-        print(year,y, first)
-        for month in months:
-            print(y,p,month, first)
-            do_on_file(p,y,month,None,first)
-            print(y,p,month, first)
+            t01 = time.time()
+            for fext in fexts:
+                pathname = model_run(passno=p,years=y,month=month,
+                                     fext=fext,day5=day)
+                cdf_file = DCDF4(pathname)
+                for t in tdict.keys():
+                    if t in fexttracerd[fext]:
+                        cdf_file.update(idict[t])
+            do_on_file()
+            t03 = time.time()
+            print (f'time  to get data from {pathname} is {t03-t01}')
+            print (f'time  after  got data from {pathname} is {t03-t00}')
 
-        for day in days:
-            print(y,p,day, first)
-            # explicitly don't call to avoid double call when both month and day are None
-            if day is not None:
-                do_on_file(p,y,None,day,first)
+        t01 = time.time()
+        print (f'time  before writing {year, month, day} is {t01-t00}')
+        threedcdf(xdict,year,month=month,day=day)
+        t03 = time.time()
+        print (f'time  to perform  write into output file is {t03-t01}')
+        print (f'time  after  write into output file is {t03-t00}')
+
+
+    def do_infile(infile):
+        t01 = time.time()
+        print (f'time  before processing {infile} etc is {t01-t00}')
+        for fext in fexts:
+
+            pathname = infile[:-3]
+            while pathname[-1].isalpha():
+                pathname = pathname[:-1]
+
+            pathname += fext + '.nc'
+
+            cdf_file = DCDF4(pathname)
+            for t in tdict.keys():
+                if t in fexttracerd[fext]:
+                    cdf_file.update(idict[t])
+
+        do_on_file()
+        t02 = time.time()
+        print (f'time  to process {pathname} is  {t02-t01')
+        print (f'time  before writing to output file & after'
+               f'processing {pathname} is {t02-t00}')
+        threedcdf(xdict,None,month=None,day=None)
+        t03 = time.time()
+        print (f'time  to perform  write into output file is {t03-t02}')
+        print (f'time  after  write into output file is {t03-t00}')
+
+
+    if not use_infile:
+        first = True
+        for year in years:
+            if args.passno is not None:
+                dy = year - args.year00
+                y, p = dy % 60 + args.year00, dy/60 + passno0
+            else:
+                y = year
+                p = None
+            print(year,y, first)
+            for month in months:
+                print(y,p,month, first)
+                do_date(p,y,month,None,first)
+                print(y,p,month, first)
+
+            for day in days:
                 print(y,p,day, first)
-
-        t0 = time.time()
-        print (f'took {t0-t01} to run year {year}')
-        print (f'time  after running run year {year} is {t0-t00}')
-
+                # explicitly don't call to avoid double call when both month and day are None
+                if day is not None:
+                    do_date(p,y,None,day,first)
+                    print(y,p,day, first)
+    else: # infile is not None
+        threedcdf(xdict,None,month=None,day=None)
+        while args.infile:
+            infile = args.infile.pop(0)
+            do_infile(infile)
+ 
 
     threedcdf.close()
