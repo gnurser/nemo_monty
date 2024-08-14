@@ -4,10 +4,73 @@ module interp
   IMPLICIT NONE
   REAL*8 :: grav  = 9.80665
   REAL*8 :: rn_alpha = 2.e-4
-  REAL*8 ::rau0 = 1035.d0
   REAL*8 :: rn_beta = 7.7e-4
-  INTEGER*4 :: neos = 0
+
+   USE OMP_LIB, ONLY : omp_set_num_threads, omp_get_thread_num, omp_get_max_threads
+   IMPLICIT NONE
+
+   INTEGER     ::   neos = -10           ! Identifier for equation of state used;
+                                         ! set to bad value until init called
+
+   INTEGER, PRIVATE , PARAMETER ::   np_teos10    = -1 ! parameter for using TEOS10
+   INTEGER, PRIVATE , PARAMETER ::   np_eos80     =  0 ! parameter for using EOS80
+   INTEGER, PRIVATE , PARAMETER ::   np_old_eos80 =  2 ! parameter for using Macdougall and Jackett EOS80
+   INTEGER, PRIVATE , PARAMETER ::   np_seos      =  1 ! parameter for using Simplified Equation of state
+
+   REAL*8 ::  rho0        = 1026.d0          !: volumic mass of reference     [kg/m3]
+   REAL*8, PRIVATE ::  r1_rho0                    ! reciprocal of volumic mass of reference     [kg/m3]
+   ! REAL*8, PRIVATE ::  grav     = 9.80665d0       !: gravity                            [m/s2]
+
+   !                               !!!  simplified eos coefficients (default value: Vallis 2006)
+   REAL*8 ::   rn_a0      = 1.6550d-1     ! thermal expansion coeff.
+   REAL*8 ::   rn_b0      = 7.6554d-1     ! saline  expansion coeff.
+   REAL*8 ::   rn_lambda1 = 5.9520d-2     ! cabbeling coeff. in T^2
+   REAL*8 ::   rn_lambda2 = 5.4914d-4     ! cabbeling coeff. in S^2
+   REAL*8 ::   rn_mu1     = 1.4970d-4     ! thermobaric coeff. in T
+   REAL*8 ::   rn_mu2     = 1.1090d-5     ! thermobaric coeff. in S
+   REAL*8 ::   rn_nu      = 2.4341d-3     ! cabbeling coeff. in theta*salt
+
+   ! TEOS10/EOS80 parameters
+   REAL*8, PRIVATE ::   r1_S0, r1_T0, r1_Z0, rdeltaS
+
+   REAL*8, PRIVATE, PARAMETER ::     R00 = 4.6494977072d+01
+   REAL*8, PRIVATE, PARAMETER ::     R01 = -5.2099962525d+00
+   REAL*8, PRIVATE, PARAMETER ::     R02 = 2.2601900708d-01
+   REAL*8, PRIVATE, PARAMETER ::     R03 = 6.4326772569d-02
+   REAL*8, PRIVATE, PARAMETER ::     R04 = 1.5616995503d-02
+   REAL*8, PRIVATE, PARAMETER ::     R05 = -1.7243708991d-03
+
+   ! EOS parameters
+   REAL*8, PRIVATE ::   EOS000 , EOS100 , EOS200 , EOS300 , EOS400 , EOS500 , EOS600
+   REAL*8, PRIVATE ::   EOS010 , EOS110 , EOS210 , EOS310 , EOS410 , EOS510
+   REAL*8, PRIVATE ::   EOS020 , EOS120 , EOS220 , EOS320 , EOS420
+   REAL*8, PRIVATE ::   EOS030 , EOS130 , EOS230 , EOS330
+   REAL*8, PRIVATE ::   EOS040 , EOS140 , EOS240
+   REAL*8, PRIVATE ::   EOS050 , EOS150
+   REAL*8, PRIVATE ::   EOS060
+   REAL*8, PRIVATE ::   EOS001 , EOS101 , EOS201 , EOS301 , EOS401
+   REAL*8, PRIVATE ::   EOS011 , EOS111 , EOS211 , EOS311
+   REAL*8, PRIVATE ::   EOS021 , EOS121 , EOS221
+   REAL*8, PRIVATE ::   EOS031 , EOS131
+   REAL*8, PRIVATE ::   EOS041
+   REAL*8, PRIVATE ::   EOS002 , EOS102 , EOS202
+   REAL*8, PRIVATE ::   EOS012 , EOS112
+   REAL*8, PRIVATE ::   EOS022
+   REAL*8, PRIVATE ::   EOS003 , EOS103
+   REAL*8, PRIVATE ::   EOS013
+
 contains
+
+     SUBROUTINE set_eos_threads(nthreads)
+       INTEGER*4, INTENT(IN)  :: nthreads
+       CALL omp_set_num_threads(nthreads)
+     END SUBROUTINE set_eos_threads
+
+     SUBROUTINE get_eos_threads(nthreads)
+       INTEGER*4, INTENT(OUT)  :: nthreads
+       nthreads = omp_get_max_threads()
+     END SUBROUTINE get_eos_threads
+     
   subroutine interpolate8(kmt,T,S,d3,d0_in,km,jm,im, &
        & k_below_s,r_above_s,T_s,S_s,outcropmask,groundmask)
     INTEGER , INTENT(IN) :: kmt(im,jm),km,jm,im
@@ -152,15 +215,13 @@ contains
 
     INTEGER*4 :: i,j,k, kmc
     REAL*8 :: r_below,r_above,p_above,p,z
-    REAL*8 :: rho00 = 1035.d0
-    REAL*8 :: rrho0 = 1.d0/1035.d0
-    REAL*8 :: grav = 9.80665d0
+
     REAL*8 :: buoy(100)
     ! REAL*8, ALLOCATABLE :: rhbar(:)
     ! REAL*4, ALLOCATABLE :: rho(:)
     REAL*4 :: b0
 
-    b0 = -d0_in*grav*rrho0
+    b0 = -d0_in*grav*r1_rho0
     do j=1,jm
        !$omp parallel do private(kmc,k,i,r_above,r_below,z,buoy,p_above,p) shared(active,im,j,kmt,k_below_s,r_above_s,depth_km,rho,drho0,b0,z_s,Mg)
        do i=1,im
@@ -171,7 +232,7 @@ contains
              r_below = 1.d0 - r_above
              z = r_above*depth(k,i,j) + r_below*depth(k+1,i,j)
              z_s(i,j) = z
-             buoy(1:k) = -grav*rrho0*(rho(1:k,i,j) - drho0(1:k,i,j))
+             buoy(1:k) = -grav*r1_rho0*(rho(1:k,i,j) - drho0(1:k,i,j))
              p_above = ssh(i,j)*grav - dzw(1,i,j)*buoy(1)
              if(k>1) then
                 p_above = p_above - dot_product(.5d0*(buoy(1:k-1)+buoy(2:k)),dzw(2:k,i,j))
@@ -237,9 +298,6 @@ contains
 
     INTEGER*4 :: i,j,k, kmc
     REAL*8 :: r_below,r_above,p_above,p,z,sig8(2),T8(2),S8(2)
-    REAL*8 :: rho0 = 1035.d0
-    REAL*8 :: rrho0 = 1.d0/1035.d0
-    REAL*8 :: grav = 9.80665d0
     REAL*8 :: buoy(100)
     ! REAL*8, ALLOCATABLE :: rhbar(:)
     ! REAL*4, ALLOCATABLE :: rho(:)
@@ -248,7 +306,7 @@ contains
     ! ALLOCATE (rhbar(km))
     ! ALLOCATE (rho(km),rhbar(km))
 
-    b0 = -d0_in*grav*rrho0
+    b0 = -d0_in*grav*r1_rho0
     do j=1,jm
 !!!     !$omp parallel do private(kmc,k,i,r_above,r_below,z,T8,S8,sig8,buoy,p_above,p) shared(active,im,j,kmt,k_below_s,r_above_s,depth_km,d3,b0,z_s,d_s,Mg)
        do i=1,im
@@ -263,7 +321,7 @@ contains
              S8 = S(k:k+1,i,j)
              call sigma_n(T8,S8,2,depth_km,sig8)
              d_s(i,j) = r_above*sig8(1) + r_below*sig8(2)
-             buoy(1:k) = -grav*rrho0*d3(1:k,i,j)
+             buoy(1:k) = -grav*r1_rho0*d3(1:k,i,j)
              p_above = ssh(i,j)*grav - dzw(1,i,j)*buoy(1)
              if(k>1) then
                 p_above = p_above - dot_product(.5d0*(buoy(1:k-1)+buoy(2:k)),dzw(2:k,i,j))

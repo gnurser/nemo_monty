@@ -15,6 +15,7 @@ import math
 from nemo_monty.gridstuff import RealGridStuff
 import nemo_monty.findnemo as findnemo
 from nemo_eos.nemo_rho import eos
+from nemo_monty.interp import interp
 import bp
 
 #@jit
@@ -768,8 +769,6 @@ class Montgomery(Rho):
         self.kmt = (~(self.Tmask)).astype(np.int32).sum(-1).astype(np.int32)
         self.Falsemask = self.kmt < 0
 
-        from nemo_monty.interp import interp
-        interp.eos_init(self.neos)
         # interpolate4, interpolate8, mginterpolate4, mginterpolate8,siginterpolate4
         print( 'in Montgomery dtype is',self.dtype)
         if self.dtype == np.float32:
@@ -799,7 +798,7 @@ class Montgomery(Rho):
             self.deltaS = 0.2
 
         self.grav = 9.81
-        self.rrho0 = 1./1035.
+        self.rrho0 = 1./1026.
         self.first = True
 
     def describe(self,d0=27.):
@@ -1042,7 +1041,7 @@ class BottomPressure(Rho):
         bp.bp.setup_bp_mn(self._FillValue,kmt.T,e3w.T)
 
     def describe(self):
-        self.data.long_name = 'bottom pressure anomaly from rh=1035/ssh=0 using NEMO EOS'
+        self.data.long_name = 'bottom pressure anomaly from rh=1026/ssh=0 using NEMO EOS'
         self.data.standard_name = 'bottom pressure'
         self.data.units = 'kPa'
 
@@ -1067,7 +1066,7 @@ class TotalHeat(Rho):
 class WaterIce(Rho):
     def working(self):
         self.rh_ice = 900.
-        self.rrho0 = 1./1035.
+        self.rrho0 = 1./1026.
 
     def describe(self):
         self.data.long_name = 'Melted ice height aice*hice*rh_ice/rho0'
@@ -1080,7 +1079,7 @@ class WaterIce(Rho):
 class WaterSnow(Rho):
     def working(self):
         self.rh_snow = 330.
-        self.rrho0 = 1./1035.
+        self.rrho0 = 1./1026.
 
     def describe(self):
         self.data.long_name = 'Melted snow height aice*hsnow*rh_snow/rho0'
@@ -1108,8 +1107,8 @@ class SaltIn(Rho):
         self.data.units = 'kg/(m^2 s)'
 
     def calc(self,EmPd,EmPsd,sssd):
-        # self.data.nos = (EmPsd.nos - EmPd.nos)*(35./1035.)
-        self.data.nos = (EmPsd.nos - EmPd.nos)*(sssd.nos/1035.)
+        # self.data.nos = (EmPsd.nos - EmPd.nos)*(35./1026.)
+        self.data.nos = (EmPsd.nos - EmPd.nos)*(sssd.nos/1026.)
 
 class WaterIn(Rho):
     def describe(self):
@@ -1135,10 +1134,10 @@ class BuoyancyIn(Rho):
 
     def calc(self,EmPsd,Hind,sstd,sssd):
         rcp = 4.e3
-        salt =  EmPsd.nos*(sssd.nos/1035.)
+        salt =  EmPsd.nos*(sssd.nos/1026.)
         sst,sss = [x.nos.data.ravel() for x in (sstd, sssd)]
         alpha, beta = self.eos_rab_ref_m(self._FillValue,self.mask.ravel(),sst,sss,0.)
-        self.data.nos = 1.e6*(beta.reshape(self.shape)*salt*1035. -
+        self.data.nos = 1.e6*(beta.reshape(self.shape)*salt*1026. -
                          alpha.reshape(self.shape)*Hind.nos/rcp)
 
 
@@ -1213,7 +1212,7 @@ class Glob3Heat(Glob3Sum):
 
     def working(self):
         cp = 4.e3
-        rho0 = 1035.
+        rho0 = 1026.
         self.cprho = cp*rho0
 
     def calc(self,Tsum):
@@ -1490,7 +1489,12 @@ if __name__ == '__main__':
                         help='name of restart tracers to read',
                         nargs= '*',default=[])
     args = parser.parse_args()
+
     eos.set_eos_threads(args.nthreads)
+    eos.eos_init(args.neos)
+    interp.set_eos_threads(args.nthreads)
+    interp.eos_init(args.neos)
+
     if args.meshdir is None:
         try:
             args.meshdir = os.environ["MESHDIR"]
