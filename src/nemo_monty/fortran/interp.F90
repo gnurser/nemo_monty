@@ -1,11 +1,6 @@
 ! to compile for python on linux with ifort do
 ! dof2py2 -x '-openmp -D__OPENMP -fast ' --open_mp interp.F90
 module interp
-  IMPLICIT NONE
-  REAL*8 :: grav  = 9.80665
-  REAL*8 :: rn_alpha = 2.e-4
-  REAL*8 :: rn_beta = 7.7e-4
-
    USE OMP_LIB, ONLY : omp_set_num_threads, omp_get_thread_num, omp_get_max_threads
    IMPLICIT NONE
 
@@ -16,6 +11,10 @@ module interp
    INTEGER, PRIVATE , PARAMETER ::   np_eos80     =  0 ! parameter for using EOS80
    INTEGER, PRIVATE , PARAMETER ::   np_old_eos80 =  2 ! parameter for using Macdougall and Jackett EOS80
    INTEGER, PRIVATE , PARAMETER ::   np_seos      =  1 ! parameter for using Simplified Equation of state
+
+  REAL*8 :: grav  = 9.80665
+  REAL*8 :: rn_alpha = 2.e-4
+  REAL*8 :: rn_beta = 7.7e-4
 
    REAL*8 ::  rho0        = 1026.d0          !: volumic mass of reference     [kg/m3]
    REAL*8, PRIVATE ::  r1_rho0                    ! reciprocal of volumic mass of reference     [kg/m3]
@@ -207,7 +206,8 @@ contains
     REAL*4 , INTENT(IN) :: depth(km,im,jm)
     REAL*8 , INTENT(IN) :: d0_in
     INTEGER*4 , INTENT(IN) :: k_below_s(im,jm)
-    REAL*8 , INTENT(IN) :: r_above_s(im,jm), depth_km
+    REAL*8 , INTENT(IN) :: r_above_s(im,jm)
+    REAL*4 , INTENT(IN) :: depth_km
     LOGICAL(KIND=1) , INTENT(IN) :: active(im,jm)
     REAL*8 , INTENT(OUT) :: z_s(im,jm),Mg(im,jm)
     !f2py intent (in) kmt,km,jm,im,T,S,rho,drho0,ssh,dzw,depth,k_below,r_above_s,depth_km,d0_in,active
@@ -250,7 +250,8 @@ contains
     INTEGER*4 , INTENT(IN) :: km,jm,im
     REAL*4 , INTENT(IN) :: T(km,im,jm),S(km,im,jm)
     INTEGER*4 , INTENT(IN) :: k_below_s(im,jm)
-    REAL*8 , INTENT(IN) :: r_above_s(im,jm), depth_km, median_depth_km
+    REAL*8 , INTENT(IN) :: r_above_s(im,jm)
+    REAL*4 , INTENT(IN) :: depth_km, median_depth_km
     LOGICAL(KIND=1) , INTENT(IN) :: active(im,jm)
     REAL*8 , INTENT(OUT) :: sig_s(im,jm),median_sig_s(im,jm)
     !f2py intent (in) km,jm,im,T,S,k_below,r_above_s,active,depth_km,median_depth_km
@@ -271,8 +272,8 @@ contains
              ! S8 = S(k:k+1,i,j)
              ! call sigma_n(T8,S8,2,depth_km,sig8)
              ! call sigma_n(T8,S8,2,median_depth_km,median_sig8)
-             call eos_sigman4(T(k:k+1,i,j),S(k:k+1,i,j),depth_km,sig)
-             call eos_sigman4(T(k:k+1,i,j),S(k:k+1,i,j),median_depth_km,median_sig)
+             call eos_sigman4(T(k:k+1,i,j),S(k:k+1,i,j),depth_km,sig,2)
+             call eos_sigman4(T(k:k+1,i,j),S(k:k+1,i,j),median_depth_km,median_sig,2)
              sig_s(i,j) = r_above*sig(1) + r_below*sig(2)
              median_sig_s(i,j) = r_above*median_sig(1) + r_below*median_sig(2)
           end if
@@ -281,57 +282,58 @@ contains
     end do
   end subroutine siginterpolate4
 
-  subroutine mginterpolate8(kmt,T,S,d3,ssh,dzw,depth, &
-       & k_below_s,r_above_s,active,depth_km,d0_in,km,jm,im, &
-       & z_s,d_s,Mg)
-    INTEGER*4 , INTENT(IN) :: kmt(im,jm),km,jm,im
-    REAL*8 , INTENT(IN) :: T(km,im,jm),S(km,im,jm),d3(km,im,jm),ssh(im,jm)
-    REAL*8 , INTENT(IN) :: dzw(km,im,jm)
-    REAL*4 , INTENT(IN) :: depth(km,im,jm)
-    REAL*8 , INTENT(IN) :: d0_in
-    INTEGER*4 , INTENT(IN) :: k_below_s(im,jm)
-    REAL*8 , INTENT(IN) :: r_above_s(im,jm), depth_km
-    LOGICAL(KIND=1) , INTENT(IN) :: active(im,jm)
-    REAL*8 , INTENT(OUT) :: z_s(im,jm),d_s(im,jm),Mg(im,jm)
-    !f2py intent (in) kmt,km,jm,im,T,S,d3,ssh,dzw,depth,k_below,r_above_s,depth_km,d0_in,active
-    !f2py intent (out) z_s,d_s,Mg
+!   subroutine mginterpolate8(kmt,T,S,d3,ssh,dzw,depth, &
+!        & k_below_s,r_above_s,active,depth_km,d0_in,km,jm,im, &
+!        & z_s,d_s,Mg)
+!     INTEGER*4 , INTENT(IN) :: kmt(im,jm),km,jm,im
+!     REAL*8 , INTENT(IN) :: T(km,im,jm),S(km,im,jm),d3(km,im,jm),ssh(im,jm)
+!     REAL*8 , INTENT(IN) :: dzw(km,im,jm)
+!     REAL*4 , INTENT(IN) :: depth(km,im,jm)
+!     REAL*8 , INTENT(IN) :: d0_in
+!     INTEGER*4 , INTENT(IN) :: k_below_s(im,jm)
+!     REAL*8 , INTENT(IN) :: r_above_s(im,jm)
+!     REAL*4 , INTENT(IN) :: depth_km
+!     LOGICAL(KIND=1) , INTENT(IN) :: active(im,jm)
+!     REAL*8 , INTENT(OUT) :: z_s(im,jm),d_s(im,jm),Mg(im,jm)
+!     !f2py intent (in) kmt,km,jm,im,T,S,d3,ssh,dzw,depth,k_below,r_above_s,depth_km,d0_in,active
+!     !f2py intent (out) z_s,d_s,Mg
 
-    INTEGER*4 :: i,j,k, kmc
-    REAL*8 :: r_below,r_above,p_above,p,z,sig8(2),T8(2),S8(2)
-    REAL*8 :: buoy(100)
-    ! REAL*8, ALLOCATABLE :: rhbar(:)
-    ! REAL*4, ALLOCATABLE :: rho(:)
-    REAL*4 :: b0
+!     INTEGER*4 :: i,j,k, kmc
+!     REAL*8 :: r_below,r_above,p_above,p,z,sig8(2),T8(2),S8(2)
+!     REAL*8 :: buoy(100)
+!     ! REAL*8, ALLOCATABLE :: rhbar(:)
+!     ! REAL*4, ALLOCATABLE :: rho(:)
+!     REAL*4 :: b0
 
-    ! ALLOCATE (rhbar(km))
-    ! ALLOCATE (rho(km),rhbar(km))
+!     ! ALLOCATE (rhbar(km))
+!     ! ALLOCATE (rho(km),rhbar(km))
 
-    b0 = -d0_in*grav*r1_rho0
-    do j=1,jm
-!!!     !$omp parallel do private(kmc,k,i,r_above,r_below,z,T8,S8,sig8,buoy,p_above,p) shared(active,im,j,kmt,k_below_s,r_above_s,depth_km,d3,b0,z_s,d_s,Mg)
-       do i=1,im
-          if (active(i,j)) then
-             kmc = kmt(i,j)
-             k = k_below_s(i,j)
-             r_above = r_above_s(i,j)
-             r_below = 1.d0 - r_above
-             z = r_above*depth(k,i,j) + r_below*depth(k+1,i,j)
-             z_s(i,j) = z
-             T8 = T(k:k+1,i,j)
-             S8 = S(k:k+1,i,j)
-             call sigma_n(T8,S8,2,depth_km,sig8)
-             d_s(i,j) = r_above*sig8(1) + r_below*sig8(2)
-             buoy(1:k) = -grav*r1_rho0*d3(1:k,i,j)
-             p_above = ssh(i,j)*grav - dzw(1,i,j)*buoy(1)
-             if(k>1) then
-                p_above = p_above - dot_product(.5d0*(buoy(1:k-1)+buoy(2:k)),dzw(2:k,i,j))
-             end if
-             p = p_above - .5d0*(buoy(k) + b0)*r_below*dzw(k+1,i,j)
-             Mg(i,j) = p + b0*z
-          end if
-       end do
-    end do
-    end subroutine mginterpolate8
+!     b0 = -d0_in*grav*r1_rho0
+!     do j=1,jm
+! !!!     !$omp parallel do private(kmc,k,i,r_above,r_below,z,T8,S8,sig8,buoy,p_above,p) shared(active,im,j,kmt,k_below_s,r_above_s,depth_km,d3,b0,z_s,d_s,Mg)
+!        do i=1,im
+!           if (active(i,j)) then
+!              kmc = kmt(i,j)
+!              k = k_below_s(i,j)
+!              r_above = r_above_s(i,j)
+!              r_below = 1.d0 - r_above
+!              z = r_above*depth(k,i,j) + r_below*depth(k+1,i,j)
+!              z_s(i,j) = z
+!              T8 = T(k:k+1,i,j)
+!              S8 = S(k:k+1,i,j)
+!              call sigma_n(T8,S8,2,depth_km,sig8)
+!              d_s(i,j) = r_above*sig8(1) + r_below*sig8(2)
+!              buoy(1:k) = -grav*r1_rho0*d3(1:k,i,j)
+!              p_above = ssh(i,j)*grav - dzw(1,i,j)*buoy(1)
+!              if(k>1) then
+!                 p_above = p_above - dot_product(.5d0*(buoy(1:k-1)+buoy(2:k)),dzw(2:k,i,j))
+!              end if
+!              p = p_above - .5d0*(buoy(k) + b0)*r_below*dzw(k+1,i,j)
+!              Mg(i,j) = p + b0*z
+!           end if
+!        end do
+!     end do
+!     end subroutine mginterpolate8
 
 
     SUBROUTINE eos_sigman4(T, S, depth_km, rho, n)
@@ -1322,133 +1324,7 @@ contains
          EOS103 = -1.8507636718d-02
          EOS013 = 3.7969820455d-01
          !
-         ALP000 = -6.5025362670d-01
-         ALP100 = 1.6320471316d0
-         ALP200 = -2.0442606277d0
-         ALP300 = 1.4222011580d0
-         ALP400 = -4.4204535284d-01
-         ALP500 = 4.7983755487d-02
-         ALP010 = 1.8537085209d0
-         ALP110 = -3.0774129064d0
-         ALP210 = 3.0181275751d0
-         ALP310 = -1.4565010626d0
-         ALP410 = 2.7361846370d-01
-         ALP020 = -1.6246342147d0
-         ALP120 = 2.5086831352d0
-         ALP220 = -1.4787808849d0
-         ALP320 = 2.3807209899d-01
-         ALP030 = 8.3627885467d-01
-         ALP130 = -1.1311538584d0
-         ALP230 = 5.3563304045d-01
-         ALP040 = -6.7560904739d-02
-         ALP140 = -6.0212475204d-02
-         ALP050 = 2.8625353333d-02
-         ALP001 = 3.3340752782d-01
-         ALP101 = 1.1217528644d-01
-         ALP201 = -1.2510649515d-01
-         ALP301 = 1.6349760916d-02
-         ALP011 = -3.3540239802d-01
-         ALP111 = -1.7531540640d-01
-         ALP211 = 9.3976864981d-02
-         ALP021 = 1.8487252150d-01
-         ALP121 = 4.1307825959d-02
-         ALP031 = -5.5927935970d-02
-         ALP002 = -5.1410778748d-02
-         ALP102 = 5.3278413794d-03
-         ALP012 = 6.2099915132d-02
-         ALP003 = -9.4924551138d-03
-         !
-         BET000 = 1.0783203594d+01
-         BET100 = -4.4452095908d+01
-         BET200 = 7.6048755820d+01
-         BET300 = -6.3944280668d+01
-         BET400 = 2.6890441098d+01
-         BET500 = -4.5221697773d0
-         BET010 = -8.1219372432d-01
-         BET110 = 2.0346663041d0
-         BET210 = -2.1232895170d0
-         BET310 = 8.7994140485d-01
-         BET410 = -1.1939638360d-01
-         BET020 = 7.6574242289d-01
-         BET120 = -1.5019813020d0
-         BET220 = 1.0872489522d0
-         BET320 = -2.7233429080d-01
-         BET030 = -4.1615152308d-01
-         BET130 = 4.9061350869d-01
-         BET230 = -1.1847737788d-01
-         BET040 = 1.4073062708d-01
-         BET140 = -1.3327978879d-01
-         BET050 = 5.9929880134d-03
-         BET001 = -5.2937873009d-01
-         BET101 = 1.2634116779d0
-         BET201 = -1.1547328025d0
-         BET301 = 3.2870876279d-01
-         BET011 = -5.5824407214d-02
-         BET111 = 1.2451933313d-01
-         BET211 = -2.4409539932d-02
-         BET021 = 4.3623149752d-02
-         BET121 = -4.6767901790d-02
-         BET031 = -6.8523260060d-03
-         BET002 = -6.1618945251d-02
-         BET102 = 6.2255521644d-02
-         BET012 = -2.6514181169d-03
-         BET003 = -2.3025968587d-04
-         !
-         PEN000 = -9.8409626043d0
-         PEN100 = 2.1274999107d+01
-         PEN200 = -2.5387384109d+01
-         PEN300 = 1.5469038167d+01
-         PEN400 = -3.3025876549d0
-         PEN010 = 6.6681505563d0
-         PEN110 = 2.2435057288d0
-         PEN210 = -2.5021299030d0
-         PEN310 = 3.2699521832d-01
-         PEN020 = -3.3540239802d0
-         PEN120 = -1.7531540640d0
-         PEN220 = 9.3976864981d-01
-         PEN030 = 1.2324834767d0
-         PEN130 = 2.7538550639d-01
-         PEN040 = -2.7963967985d-01
-         PEN001 = -1.3773949450d0
-         PEN101 = 3.3018402659d0
-         PEN201 = -1.6679755496d0
-         PEN011 = -1.3709540999d0
-         PEN111 = 1.4207577012d-01
-         PEN021 = 8.2799886843d-01
-         PEN002 = 1.7507069098d-02
-         PEN102 = 1.3880727538d-02
-         PEN012 = -2.8477365341d-01
-         !
-         APE000 = -1.6670376391d-01
-         APE100 = -5.6087643219d-02
-         APE200 = 6.2553247576d-02
-         APE300 = -8.1748804580d-03
-         APE010 = 1.6770119901d-01
-         APE110 = 8.7657703198d-02
-         APE210 = -4.6988432490d-02
-         APE020 = -9.2436260751d-02
-         APE120 = -2.0653912979d-02
-         APE030 = 2.7963967985d-02
-         APE001 = 3.4273852498d-02
-         APE101 = -3.5518942529d-03
-         APE011 = -4.1399943421d-02
-         APE002 = 7.1193413354d-03
-         !
-         BPE000 = 2.6468936504d-01
-         BPE100 = -6.3170583896d-01
-         BPE200 = 5.7736640125d-01
-         BPE300 = -1.6435438140d-01
-         BPE010 = 2.7912203607d-02
-         BPE110 = -6.2259666565d-02
-         BPE210 = 1.2204769966d-02
-         BPE020 = -2.1811574876d-02
-         BPE120 = 2.3383950895d-02
-         BPE030 = 3.4261630030d-03
-         BPE001 = 4.1079296834d-02
-         BPE101 = -4.1503681096d-02
-         BPE011 = 1.7676120780d-03
-         BPE002 = 1.7269476440d-04
-         !
+
       CASE( np_eos80 )                        !==  polynomial EOS-80 formulation  ==!
          !
          rdeltaS = 20.d0
@@ -1509,132 +1385,6 @@ contains
          EOS103 = -5.7238495240d-02
          EOS013 = 3.8306136687d-01
          !
-         ALP000 = -2.5218796628d-01
-         ALP100 = 3.4119354654d-01
-         ALP200 = -2.2119589983d-01
-         ALP300 = 1.8082347094d-01
-         ALP400 = -3.6936026529d-02
-         ALP500 = -5.0091801383d-03
-         ALP010 = 1.2789915300d0
-         ALP110 = -1.2021756164d0
-         ALP210 = 8.4037519952d-01
-         ALP310 = -4.1905788542d-01
-         ALP410 = 9.8855300959d-02
-         ALP020 = -1.2634838399d0
-         ALP120 = 1.6112195176d0
-         ALP220 = -7.5817155402d-01
-         ALP320 = 4.7006963580d-02
-         ALP030 = 8.0812310102d-01
-         ALP130 = -1.0102374985d0
-         ALP230 = 4.8340368631d-01
-         ALP040 = -1.5098959754d-01
-         ALP140 = -1.4394226233d-02
-         ALP050 = 3.6780433255d-02
-         ALP001 = 3.9631611467d-01
-         ALP101 = 1.9159845880d-02
-         ALP201 = -1.0286156825d-01
-         ALP301 = 1.6738969362d-02
-         ALP011 = -4.9997430930d-01
-         ALP111 = 9.7335338937d-03
-         ALP211 = 6.0887771651d-02
-         ALP021 = 2.6149576513d-01
-         ALP121 = -1.6671866715d-02
-         ALP031 = -5.9503008642d-02
-         ALP002 = -5.4590812035d-02
-         ALP102 = 8.6134185799d-03
-         ALP012 = 6.2740815484d-02
-         ALP003 = -9.5765341718d-03
-         !
-         BET000 = 2.1420623987d0
-         BET100 = -9.3752598635d0
-         BET200 = 1.9446303907d+01
-         BET300 = -1.8632235232d+01
-         BET400 = 8.9390837485d0
-         BET500 = -1.7142465871d0
-         BET010 = -1.7059677327d-01
-         BET110 = 2.2119589983d-01
-         BET210 = -2.7123520642d-01
-         BET310 = 7.3872053057d-02
-         BET410 = 1.2522950346d-02
-         BET020 = 3.0054390409d-01
-         BET120 = -4.2018759976d-01
-         BET220 = 3.1429341406d-01
-         BET320 = -9.8855300959d-02
-         BET030 = -2.6853658626d-01
-         BET130 = 2.5272385134d-01
-         BET230 = -2.3503481790d-02
-         BET040 = 1.2627968731d-01
-         BET140 = -1.2085092158d-01
-         BET050 = 1.4394226233d-03
-         BET001 = -2.2271304375d-01
-         BET101 = 5.5453416919d-01
-         BET201 = -6.2815936268d-01
-         BET301 = 2.0601115202d-01
-         BET011 = -9.5799229402d-03
-         BET111 = 1.0286156825d-01
-         BET211 = -2.5108454043d-02
-         BET021 = -2.4333834734d-03
-         BET121 = -3.0443885826d-02
-         BET031 = 2.7786444526d-03
-         BET002 = -4.2811838287d-02
-         BET102 = 5.1355066072d-02
-         BET012 = -4.3067092900d-03
-         BET003 = -7.1548119050d-04
-         !
-         PEN000 = -5.3743005340d0
-         PEN100 = 8.9085217499d0
-         PEN200 = -1.1090683384d+01
-         PEN300 = 8.3754581690d0
-         PEN400 = -2.0601115202d0
-         PEN010 = 7.9263222935d0
-         PEN110 = 3.8319691761d-01
-         PEN210 = -2.0572313651d0
-         PEN310 = 3.3477938724d-01
-         PEN020 = -4.9997430930d0
-         PEN120 = 9.7335338937d-02
-         PEN220 = 6.0887771651d-01
-         PEN030 = 1.7433051009d0
-         PEN130 = -1.1114577810d-01
-         PEN040 = -2.9751504321d-01
-         PEN001 = -6.9171176978d-01
-         PEN101 = 2.2832980419d0
-         PEN201 = -1.3694684286d0
-         PEN011 = -1.4557549876d0
-         PEN111 = 2.2969116213d-01
-         PEN021 = 8.3654420645d-01
-         PEN002 = -1.4046808820d-02
-         PEN102 = 4.2928871430d-02
-         PEN012 = -2.8729602515d-01
-         !
-         APE000 = -1.9815805734d-01
-         APE100 = -9.5799229402d-03
-         APE200 = 5.1430784127d-02
-         APE300 = -8.3694846809d-03
-         APE010 = 2.4998715465d-01
-         APE110 = -4.8667669469d-03
-         APE210 = -3.0443885826d-02
-         APE020 = -1.3074788257d-01
-         APE120 = 8.3359333577d-03
-         APE030 = 2.9751504321d-02
-         APE001 = 3.6393874690d-02
-         APE101 = -5.7422790533d-03
-         APE011 = -4.1827210323d-02
-         APE002 = 7.1824006288d-03
-         !
-         BPE000 = 1.1135652187d-01
-         BPE100 = -2.7726708459d-01
-         BPE200 = 3.1407968134d-01
-         BPE300 = -1.0300557601d-01
-         BPE010 = 4.7899614701d-03
-         BPE110 = -5.1430784127d-02
-         BPE210 = 1.2554227021d-02
-         BPE020 = 1.2166917367d-03
-         BPE120 = 1.5221942913d-02
-         BPE030 = -1.3893222263d-03
-         BPE001 = 2.8541225524d-02
-         BPE101 = -3.4236710714d-02
-         BPE011 = 2.8711395266d-03
-         BPE002 = 5.3661089288d-04
          !
          IF(neos == np_teos10) r1_S0  = 0.875d0/35.16504d0   ! Used to convert CT to potential temperature when using bulk formulae
                                          !   (eos_pot_from_CT)
