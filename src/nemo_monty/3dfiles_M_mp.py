@@ -1998,7 +1998,7 @@ if __name__ == '__main__':
 
         do_on_file()
         t02 = time.time()
-        print (f'time  to process {pathname} is  {t02-t01')
+        print (f'time  to process {pathname} is  {t02-t01}')
         print (f'time  before writing to output file & after'
                f'processing {pathname} is {t02-t00}')
         threedcdf(xdict,None,month=None,day=None)
