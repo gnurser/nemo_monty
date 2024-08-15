@@ -39,7 +39,11 @@ fortranobject_c = incdir_f2py / 'fortranobject.c'
 interp_source = custom_target('interpmodule.c',
   input : ['src/nemo_monty/fortran/interp.F90'],
   output : ['interpmodule.c', 'interp-f2pywrappers2.f90'],
-  command : [py, '-m', 'numpy.f2py', '@INPUT@', '-m', 'interp', '--lower']
+  command : [py, '-m', 'numpy.f2py', '@INPUT@', '-m', 'interp', '--lower',
+             'only:', 'eos_init', 'set_eos_threads', 'get_eos_threads',
+             'interpolate8', 'interpolate4', 'mginterpolate4',
+             'siginterpolate4', 'convect8', 'convect4',
+             ':']
 )
 bp_source = custom_target('bpmodule.c',
   input : ['src/nemo_monty/fortran/bp.F90'],
