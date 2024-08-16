@@ -760,7 +760,7 @@ class BoussinesqR(object):
         return (self.rho - self.drho0).reshape(self.shape)
 
 class Montgomery(Rho):
-    def working(self,meshes,Td,T0=0,S0=35.,depth_km=0.,deltaT=None,deltaS=None):
+    def working(self,meshes,Td,T0=0,S0=35.,depth_km=0.,deltaT=None, deltaS=None, iterate_TS0='none'):
         Td.nos = ma.masked_where(np.isnan(Td.nos), Td.nos)
         e3w = put_z_inner(meshes['w'].e3)
         e3t = put_z_inner(meshes['t'].e3)
@@ -787,6 +787,7 @@ class Montgomery(Rho):
         self.rb = BoussinesqR(self.depth,self._FillValue,self.Tmask,self.dtype,T0=T0,S0=S0,depth_km=depth_km)
 
         self.depth_km = depth_km
+        self.iterate_TS0 = iterate_TS0
         if deltaT is not None:
             self.deltaT = deltaT
         else:
@@ -807,7 +808,7 @@ class Montgomery(Rho):
         self.data.units = 'm^2s^-2'
         self.d0 = d0
 
-    def calc(self,sshd,Td,Sd,iterate_TS0=False):
+    def calc(self,sshd,Td,Sd):
         d0 = self.d0
         depth = self.depth
         t0 = time.time()
@@ -820,21 +821,21 @@ class Montgomery(Rho):
 
         JM,IM = self.kmt.shape
         T0,S0 = self.rb.T0,self.rb.S0
-
+        iterate_TS0 = self.iterate_TS0
         sea_indices = self.kmt.nonzero()
         if len(sea_indices[0]) == 0:
             sys.exit('no sea points in domain')
         t0 = time.time()
         while True:
             t2 = time.time()
-            if self.first:
+            if self.first_time_level or iterate_TS0=='all':
                 self.rb.calculate_drho0(T0,S0)
             t4 = time.time()
             print( 'time to calculate drho0 is',t4-t2)
             # d3 = self.rb()
             t3 = time.time()
             print( 'time to calculate d is',t3-t4)
-            print( self.kmt.min())
+            #print( self.kmt.min())
             k_below_s,r_above_s,T_s,S_s,outcropmask,groundmask = \
               [x.T for x in self.interpolate(self.kmt.T,T.T,S.T,self.rb.rho.T,self.rb.drho0.T,d0)]
 
@@ -856,8 +857,9 @@ class Montgomery(Rho):
             print( 'on density=',d0,'Smin Smax Smedian=',Smin_s,Smax_s,Sbar)
             print( 'on density=',d0,'T0=',T0, 'S0=', S0)
 
-           # if first call, iterate; then just take already set value unless specify iterate = True
-            if (TS0_iterate is 'none' or TS0_iterate is 'first' and not self.first_time_level) or \
+            # if first call, iterate; then just take already set value unless specify iterate = True
+            print(iterate_TS0)
+            if (iterate_TS0=='none' or iterate_TS0=='first' and not self.first_time_level) or \
                ( abs(T0 - Tbar) < self.deltaT and abs(S0 - Sbar) < self.deltaS ):
                 break
             else:
@@ -1459,7 +1461,7 @@ if __name__ == '__main__':
     parser.add_argument('--TS0',dest='TS0',
                         help='initial guess for T0 and S0 on density layer',
                         nargs=2,type=float,default=None)
-    parser.add_argument('--TS0_iterate',dest='TS0_iterate',
+    parser.add_argument('--iterate_TS0',dest='iterate_TS0',
                         help='How to iterate T0 and S0 in definition of r_b:\n'
                         'none => use T0 and S0 directly as specified from args.TS0'
                         'first => iterate T0 and S0 when doing first time-level; use these for later levels'
@@ -1737,7 +1739,7 @@ if __name__ == '__main__':
     if inargs('mont'):
         mgd = Montgomery('mont',tdict['ssh'],neos=args.neos, d0=args.density)
         T0,S0 = args.TS0
-        mgd.working(meshes,tdict['T'],T0=T0,S0=S0,depth_km=args.depth_km)
+        mgd.working(meshes,tdict['T'],T0=T0,S0=S0,depth_km=args.depth_km, iterate_TS0 = args.iterate_TS0)
         mgd.calc(tdict['ssh'],tdict['T'],tdict['S'])
         idict['mont'] = mgd.data
 
