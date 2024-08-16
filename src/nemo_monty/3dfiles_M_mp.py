@@ -799,7 +799,7 @@ class Montgomery(Rho):
 
         self.grav = 9.81
         self.rrho0 = 1./1026.
-        self.first = True
+        self.first_time_level = True
 
     def describe(self,d0=27.):
         self.data.long_name = 'Boussinesq Montgomery function on r_B = %5.2f' % d0
@@ -807,7 +807,7 @@ class Montgomery(Rho):
         self.data.units = 'm^2s^-2'
         self.d0 = d0
 
-    def calc(self,sshd,Td,Sd,trdir={},convect=True,iterate=False,v2=False):
+    def calc(self,sshd,Td,Sd,iterate_TS0=False):
         d0 = self.d0
         depth = self.depth
         t0 = time.time()
@@ -854,9 +854,10 @@ class Montgomery(Rho):
 
             print( 'on density=',d0,'Tmin Tmax Tmedian=',Tmin_s,Tmax_s,Tbar)
             print( 'on density=',d0,'Smin Smax Smedian=',Smin_s,Smax_s,Sbar)
+            print( 'on density=',d0,'T0=',T0, 'S0=', S0)
 
            # if first call, iterate; then just take already set value unless specify iterate = True
-            if (not iterate and not self.first) or \
+            if (TS0_iterate is 'none' or TS0_iterate is 'first' and not self.first_time_level) or \
                ( abs(T0 - Tbar) < self.deltaT and abs(S0 - Sbar) < self.deltaS ):
                 break
             else:
@@ -883,13 +884,8 @@ class Montgomery(Rho):
         self.r_above_s = ma.masked_where(d0mask,r_above_s.astype(np.float32))
         self.S_s = ma.masked_where(d0mask,S_s)
         self.S_s_lims = [Smin_s,Sbar,Smax_s]
-        self.tr_s = {}
-        for trname,tracer in trdir.items():
-            tr = put_z_inner(tracer.nos.data)
-            x = tracer_interpolate(tracer.nos.data,k_below_s,r_above_s,active)
-            self.tr_s[trname] = ma.masked_where(d0mask,x.T)
 
-        self.first = False
+        self.first_time_level = False
 
 
 class Z_s(Rho):
@@ -1440,6 +1436,13 @@ if __name__ == '__main__':
                         help='horizontal limits; required order is ylo, yhi,xlo,xhi',
                         nargs=4,type=int,default=[1,-1,1,-1])
 
+    parser.add_argument('--xlimits',dest='xlimits',
+                        help='horizontal limits; required order is xlo,xhi',
+                        nargs=2,type=int,default=[1,-1])
+    parser.add_argument('--ylimits',dest='ylimits',
+                        help='horizontal limits; required order is ylo,yhi',
+                        nargs=2,type=int,default=[1,-1])
+
     parser.add_argument('-t','--tracers', dest='mtracers',help='names of mean tracers to read',
                         nargs= '*',default=[])
     parser.add_argument('--passive_s',dest='passive_s',
@@ -1451,9 +1454,18 @@ if __name__ == '__main__':
 
     parser.add_argument('--density',dest='density',
                         help='layer density for layer output',type=float,default=None)
+    parser.add_argument('--depth_km',dest='depth_km',
+                        help='reference depth in km for sigma_s',type=float,default=0.)
     parser.add_argument('--TS0',dest='TS0',
                         help='initial guess for T0 and S0 on density layer',
                         nargs=2,type=float,default=None)
+    parser.add_argument('--TS0_iterate',dest='TS0_iterate',
+                        help='How to iterate T0 and S0 in definition of r_b:\n'
+                        'none => use T0 and S0 directly as specified from args.TS0'
+                        'first => iterate T0 and S0 when doing first time-level; use these for later levels'
+                        'all => iterate T0 and S0 independedently syatying from args.Ts0 on each time-level',
+                        choices= ['none','first','all'], default='none')
+
     parser.add_argument('--neos',dest='neos',type=int,default=2,
                         help='choose EOS: -1=> old Jackett McDougall, 0=> poly EOS-80, 2=> TEOS-10')
     parser.add_argument('--nthreads',dest='nthreads',
@@ -1725,7 +1737,7 @@ if __name__ == '__main__':
     if inargs('mont'):
         mgd = Montgomery('mont',tdict['ssh'],neos=args.neos, d0=args.density)
         T0,S0 = args.TS0
-        mgd.working(meshes,tdict['T'],T0=T0,S0=S0)
+        mgd.working(meshes,tdict['T'],T0=T0,S0=S0,depth_km=args.depth_km)
         mgd.calc(tdict['ssh'],tdict['T'],tdict['S'])
         idict['mont'] = mgd.data
 
