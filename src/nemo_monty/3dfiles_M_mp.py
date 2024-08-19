@@ -716,7 +716,7 @@ class BoussinesqR(object):
     r_B = rho_in_situ - rho(z,T0,S0) + rho(0,T0,S0)
     appropriate for models with boussinesq equation of state
     """
-    def __init__(self,depth,fillvalue,mask,dtype=np.float64,T0=0.,S0=35.,depth_km=0.,neos=2):
+    def __init__(self,depth,fillvalue,mask,dtype=np.float64, depth_km=0.,neos=2):
         self.dtype = dtype
         self.zt = depth.ravel()
         print( 'in BoussinesqR shape= ',depth.shape)
@@ -728,23 +728,18 @@ class BoussinesqR(object):
         elif self.dtype == np.float64:
             self.eos_insitu_m = eos.eos_insitu4_m
             self.eos_insitu0_m = eos.eos_insitu04_m
-        self.T0 = T0
-        self.S0 = S0
+        self.last_T0 = None
+        self.last_S0 = None
         self.depth_km = depth_km
         self.fillvalue = fillvalue
         self.mask = mask.ravel()
 
-    def calculate_drho0(self,T0=None,S0=None):
-        if T0 is None:
-            T0 = self.T0
-        else:
-            self.T0 = T0
-        if S0 is None:
-            S0 = self.S0
-        else:
-            self.S0 = S0
-
-        self.drho0 = self.eos_insitu0_m(self.fillvalue,self.mask,T0,S0,self.depth_km,self.zt).reshape(self.shape)
+    def calculate_drho0(self,T0, S0):
+        print()
+        if T0 != self.last_T0 or S0 != self.last_S0:
+            self.drho0 = self.eos_insitu0_m(self.fillvalue,self.mask,T0,S0,
+                                        self.depth_km,self.zt).reshape(self.shape)
+            self.last_T0, self.last_S0 = T0, S0
 
     def calculate_rho(self,Tz,Sz,zt=None):
         if zt is None:
@@ -767,6 +762,9 @@ class Montgomery(Rho):
         depth = put_z_inner(meshes['t'].gdep)
         self.Tmask, = [put_z_inner(x) for x in (Td.nos.mask,)]
         self.kmt = (~(self.Tmask)).astype(np.int32).sum(-1).astype(np.int32)
+        sea_indices = self.kmt.nonzero()
+        if len(sea_indices[0]) == 0:
+            sys.exit('no sea points in domain')
         self.Falsemask = self.kmt < 0
 
         # interpolate4, interpolate8, mginterpolate4, mginterpolate8,siginterpolate4
@@ -784,8 +782,8 @@ class Montgomery(Rho):
         self.e3t = e3t
         self.depth = depth
 
-        self.rb = BoussinesqR(self.depth,self._FillValue,self.Tmask,self.dtype,T0=T0,S0=S0,depth_km=depth_km)
-
+        self.T0_from_args, self.S0_from_args = T0, S0
+        self.rb = BoussinesqR(self.depth,self._FillValue,self.Tmask,self.dtype,depth_km=depth_km)
         self.depth_km = depth_km
         self.iterate_TS0 = iterate_TS0
         if deltaT is not None:
@@ -820,28 +818,27 @@ class Montgomery(Rho):
         print( 'time to calculate rho is',t0-t1)
 
         JM,IM = self.kmt.shape
-        T0,S0 = self.rb.T0,self.rb.S0
         iterate_TS0 = self.iterate_TS0
-        sea_indices = self.kmt.nonzero()
-        if len(sea_indices[0]) == 0:
-            sys.exit('no sea points in domain')
+        print(iterate_TS0)
+        if iterate_TS0 == 'all' or iterate_TS0 == 'none' or \
+                       (iterate_TS0 == 'first' and self.first_time_level):
+            T0,S0 =  self.T0_from_args, self.S0_from_args
+        elif iterate_TS0 == 'first' and not self.first_time_level:
+            T0,S0 = self.rb.last_T0, self.rb.last_S0
+
         t0 = time.time()
         while True:
             t2 = time.time()
-            if self.first_time_level or iterate_TS0=='all':
-                self.rb.calculate_drho0(T0,S0)
+            self.rb.calculate_drho0(T0,S0)
             t4 = time.time()
             print( 'time to calculate drho0 is',t4-t2)
-            # d3 = self.rb()
-            t3 = time.time()
-            print( 'time to calculate d is',t3-t4)
             #print( self.kmt.min())
             k_below_s,r_above_s,T_s,S_s,outcropmask,groundmask = \
               [x.T for x in self.interpolate(self.kmt.T,T.T,S.T,self.rb.rho.T,self.rb.drho0.T,d0)]
 
             outcropmask,groundmask = outcropmask.astype(bool),groundmask.astype(bool)
             t2 = time.time()
-            print( 'time to calculate k_below is',t2-t3)
+            print( 'time to calculate k_below is',t2-t4)
             d0mask = self.mask + groundmask + outcropmask
             active = np.logical_not(d0mask)
             if active.max() == False:
@@ -858,7 +855,6 @@ class Montgomery(Rho):
             print( 'on density=',d0,'T0=',T0, 'S0=', S0)
 
             # if first call, iterate; then just take already set value unless specify iterate = True
-            print(iterate_TS0)
             if (iterate_TS0=='none' or iterate_TS0=='first' and not self.first_time_level) or \
                ( abs(T0 - Tbar) < self.deltaT and abs(S0 - Sbar) < self.deltaS ):
                 break
@@ -1461,6 +1457,9 @@ if __name__ == '__main__':
     parser.add_argument('--TS0',dest='TS0',
                         help='initial guess for T0 and S0 on density layer',
                         nargs=2,type=float,default=None)
+    parser.add_argument('--deltaTS',dest='deltaTS',
+                        help='required closeness of Tbar & T0; Sbar and S0 in iterating to find T0 and S0',
+                        nargs=2,type=float,default=(0.5, 0.2))
     parser.add_argument('--iterate_TS0',dest='iterate_TS0',
                         help='How to iterate T0 and S0 in definition of r_b:\n'
                         'none => use T0 and S0 directly as specified from args.TS0'
@@ -1739,7 +1738,9 @@ if __name__ == '__main__':
     if inargs('mont'):
         mgd = Montgomery('mont',tdict['ssh'],neos=args.neos, d0=args.density)
         T0,S0 = args.TS0
-        mgd.working(meshes,tdict['T'],T0=T0,S0=S0,depth_km=args.depth_km, iterate_TS0 = args.iterate_TS0)
+        deltaT, deltaS = args.deltaTS
+        mgd.working(meshes,tdict['T'],T0=T0,S0=S0,depth_km=args.depth_km, deltaT=deltaT, deltaS=deltaS,
+                    iterate_TS0 = args.iterate_TS0)
         mgd.calc(tdict['ssh'],tdict['T'],tdict['S'])
         idict['mont'] = mgd.data
 
@@ -1797,8 +1798,8 @@ if __name__ == '__main__':
         idict['SnowW'] = SnowWd.data
 
     t01 = time.time()
-    print (f'took {t01-t0} to calculate variables first')
-    print (f'time  after first calculations is {t01-t00}')
+    print (f'\ntook {t01-t0} to calculate variables for first time level')
+    print (f'time after calculation of first time level is {t01-t00}')
 
     bar2d,bar3d = {},{}
 
@@ -1888,7 +1889,7 @@ if __name__ == '__main__':
 
     t01 = time.time()
     print (f'took {t01-t0} to set up output details into output file')
-    print (f'time  after setting output details into output file is {t01-t00}')
+    print (f'time  after setting output details into output file is {t01-t00}\n')
 
     def do_on_file():
             if inargs('rho'):
@@ -2018,7 +2019,7 @@ if __name__ == '__main__':
         threedcdf(xdict,None,month=None,day=None)
         t03 = time.time()
         print (f'time  to perform  write into output file is {t03-t02}')
-        print (f'time  after  write into output file is {t03-t00}')
+        print (f'time  after  write into output file is {t03-t00}\n')
 
 
     if not use_infile:
