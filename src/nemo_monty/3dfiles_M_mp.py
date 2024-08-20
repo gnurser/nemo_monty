@@ -554,14 +554,7 @@ class Create3DCDF():
                 fill_value = netCDF4.default_fillvals[tracer.nos.dtype.str[-2:]]
             else:
                 fill_value = tracer._FillValue
-            #print(tracer.dimensions)
-            #print(self.f.variables.keys())
-            # list_dims = list(tracer.dimensions)
-            # if list_dims[0] != 't':
-            #     list_dims[0] = 't'
-            #     tracer.dimensions = tuple(list_dims)
-            #     print(tracer.dimensions)
-            # list(set(tracer.dimensions) & set(self.f.variables.keys()))
+
             Nd = self.f.createVariable(nemo_mean_names.get(tracer.name,tracer.name),
                                        tracer.nos.dtype,tracer.dimensions,
                                        fill_value=fill_value, zlib=zlib)
@@ -710,6 +703,38 @@ class Rho(object):
         p = self.depth
         self.data.nos = ma.masked_where(self.mask,self.eos_insitu_m(self._FillValue,self.mask.ravel(),T,S,p).reshape(self.shape))
 
+class BoussinesqR2(Rho):
+    """
+    Instead of steric anomaly uses
+    r_B = rho_in_situ - rho(z,T0,S0) + rho(0,T0,S0)
+    appropriate for models with boussinesq equation of state
+    """
+    def working(self,meshes,T0=0, S0=35.,depth_km=0.):
+        if self.dtype == np.float32:
+            self.eos_insitu_m = eos.eos_insitu4_m
+            self.eos_insitu0_m = eos.eos_insitu04_m
+        elif self.dtype == np.float64:
+            self.eos_insitu_m = eos.eos_insitu4_m
+            self.eos_insitu0_m = eos.eos_insitu04_m
+
+        self.depth = meshes['t'].gdep.ravel()
+        self.T0, self.S0 = T0, S0
+        self.depth_km = depth_km
+
+    def describe(self, **kwargs):
+        self.data.long_name = 'in-situ density anomaly'
+        self.data.standard_name = 'in-situ density anomaly'
+        self.data.units = 'kg/m^3'
+
+    def calc(self,Td,Sd):
+        T,S = [x.nos.data.ravel() for x in (Td, Sd)]
+        p = self.depth
+        print(p.shape, T.shape,S.shape,self.mask.ravel().shape)
+        self.data.nos = ma.masked_where(self.mask, \
+                                        (self.eos_insitu_m(self._FillValue, self.mask.ravel(),T,S,p) \
+        - self.eos_insitu0_m(self._FillValue,self.mask.ravel(),self.T0,self.S0,self.depth_km,p))
+                                        .reshape(self.shape))
+
 class BoussinesqR(object):
     """
     Instead of steric anomaly uses
@@ -801,13 +826,13 @@ class Montgomery(Rho):
         self.first_time_level = True
 
     def describe(self,d0=27.):
-        self.data.long_name = 'Boussinesq Montgomery function on r_B = %5.2f' % d0
+        self.data.long_name = 'Boussinesq Montgomery function on constant r_B'# = %5.2f' % d0
         self.data.standard_name = 'Montgomery function'
         self.data.units = 'm^2s^-2'
         self.d0 = d0
+        self.n_sigma = len(self.d0)
 
     def calc(self,sshd,Td,Sd):
-        d0 = self.d0
         depth = self.depth
         t0 = time.time()
         T,S = [put_z_inner(x) for x in (Td.nos.data,Sd.nos.data)]
@@ -820,75 +845,116 @@ class Montgomery(Rho):
         JM,IM = self.kmt.shape
         iterate_TS0 = self.iterate_TS0
         print(iterate_TS0)
-        if iterate_TS0 == 'all' or iterate_TS0 == 'none' or \
-                       (iterate_TS0 == 'first' and self.first_time_level):
-            T0,S0 =  self.T0_from_args, self.S0_from_args
-        elif iterate_TS0 == 'first' and not self.first_time_level:
-            T0,S0 = self.rb.last_T0, self.rb.last_S0
+        active_list, nos_list, z_s_list, incrop_s_list, outcrop_s_list,\
+            z_median_km_list, sig_s_list, sig_s_zmed_list, T_s_list, T_s_lims_list,\
+            k_below_s_list, r_above_s_list, S_s_list, S_s_lims_list = [ [] for i in range(14)]
+        for i,d0 in enumerate(self.d0):
+            if iterate_TS0 == 'all' or iterate_TS0 == 'none' or \
+                           (iterate_TS0 == 'first' and self.first_time_level):
+                T0,S0 =  self.T0_from_args, self.S0_from_args
+            elif iterate_TS0 == 'first' and not self.first_time_level:
+                T0,S0 = self.rb.last_T0, self.rb.last_S0
+            t0 = time.time()
+            while True:
+                t2 = time.time()
+                self.rb.calculate_drho0(T0,S0)
+                t4 = time.time()
+                print( 'time to calculate drho0 is',t4-t2)
+                #print( self.kmt.min())
+                k_below_s,r_above_s,T_s,S_s,outcropmask,groundmask = \
+                  [x.T for x in self.interpolate(self.kmt.T,T.T,S.T,self.rb.rho.T,self.rb.drho0.T,d0)]
 
-        t0 = time.time()
-        while True:
-            t2 = time.time()
-            self.rb.calculate_drho0(T0,S0)
-            t4 = time.time()
-            print( 'time to calculate drho0 is',t4-t2)
-            #print( self.kmt.min())
-            k_below_s,r_above_s,T_s,S_s,outcropmask,groundmask = \
-              [x.T for x in self.interpolate(self.kmt.T,T.T,S.T,self.rb.rho.T,self.rb.drho0.T,d0)]
+                outcropmask,groundmask = outcropmask.astype(bool),groundmask.astype(bool)
+                t2 = time.time()
+                print( 'time to calculate k_below is',t2-t4)
+                d0mask = self.mask + groundmask + outcropmask
+                active = np.logical_not(d0mask)
+                if active.max() == False:
+                    print(f'isopycnal r_b = {d0:5.2f} always outcrops or grounds in domain')
+                T_act =  T_s[active].ravel()
+                Tmin_s,Tmax_s,Tbar = T_act.min(),T_act.max(),np.median(T_act)
+                S_act =  S_s[active].ravel()
+                Smin_s,Smax_s,Sbar = S_act.min(),S_act.max(),np.median(S_act)
+                t3 = time.time()
+                print( 'time to calculate medians is',t3-t2)
 
-            outcropmask,groundmask = outcropmask.astype(bool),groundmask.astype(bool)
-            t2 = time.time()
-            print( 'time to calculate k_below is',t2-t4)
-            d0mask = self.mask + groundmask + outcropmask
-            active = np.logical_not(d0mask)
-            if active.max() == False:
-                sys.exit('isopycnal always outcrops or grounds in domain')
-            T_act =  T_s[active].ravel()
-            Tmin_s,Tmax_s,Tbar = T_act.min(),T_act.max(),np.median(T_act)
-            S_act =  S_s[active].ravel()
-            Smin_s,Smax_s,Sbar = S_act.min(),S_act.max(),np.median(S_act)
-            t3 = time.time()
-            print( 'time to calculate medians is',t3-t2)
+                print( 'on density=',d0,'Tmin Tmax Tmedian=',Tmin_s,Tmax_s,Tbar)
+                print( 'on density=',d0,'Smin Smax Smedian=',Smin_s,Smax_s,Sbar)
+                print( 'on density=',d0,'T0=',T0, 'S0=', S0)
 
-            print( 'on density=',d0,'Tmin Tmax Tmedian=',Tmin_s,Tmax_s,Tbar)
-            print( 'on density=',d0,'Smin Smax Smedian=',Smin_s,Smax_s,Sbar)
-            print( 'on density=',d0,'T0=',T0, 'S0=', S0)
+                # if first call, iterate; then just take already set value unless specify iterate = True
+                if (iterate_TS0=='none' or iterate_TS0=='first' and not self.first_time_level) or \
+                   ( abs(T0 - Tbar) < self.deltaT and abs(S0 - Sbar) < self.deltaS ):
+                    break
+                else:
+                    T0,S0 = Tbar,Sbar
+            t1 = time.time()
+            print( 'time to find surface is',t1-t0)
 
-            # if first call, iterate; then just take already set value unless specify iterate = True
-            if (iterate_TS0=='none' or iterate_TS0=='first' and not self.first_time_level) or \
-               ( abs(T0 - Tbar) < self.deltaT and abs(S0 - Sbar) < self.deltaS ):
-                break
-            else:
-                T0,S0 = Tbar,Sbar
-        t1 = time.time()
-        print( 'time to find surface is',t1-t0)
+            z_s,Mg = [x.T for x in self.mginterpolate(self.kmt.T,T.T,S.T,self.rb.rho.T,self.rb.drho0.T,
+                                                      sshd.nos.data.T,self.e3w.T, self.depth.T,
+                                                      k_below_s.T,r_above_s.T,active.T,self.depth_km,d0)]
+            t0 = time.time()
+            print( 'time to calculate Montgomery',t0-t1)
 
-        z_s,Mg = [x.T for x in self.mginterpolate(self.kmt.T,T.T,S.T,self.rb.rho.T,self.rb.drho0.T,sshd.nos.data.T,self.e3w.T,
-                                                  self.depth.T,k_below_s.T,r_above_s.T,active.T,self.depth_km,d0)]
-        t0 = time.time()
-        print( 'time to calculate Montgomery',t0-t1)
+            # self.data.nos.append(ma.masked_where(d0mask,Mg))
+            # self.z_s.append(ma.masked_where(d0mask,z_s))
+            # self.incrop_s.append(groundmask)
+            # self.outcrop_s.append(outcropmask)
+            # self.z_median_km.append(ma.median(self.z_s)*1.e-3)
+            # sig_s,sig_s_zmed = [ma.masked_where(d0mask,x.T) for x in self.siginterpolate(T.T,S.T,
+            #                                    k_below_s.T,r_above_s.T,active.T, self.depth_km,self.z_median_km)]
+            # self.active.append(active)
+            # self.sig_s.append(sig_s)
+            # self.sig_s_zmed.append(sig_s_zmed)
+            # self.T_s.append(ma.masked_where(d0mask,T_s))
+            # self.T_s_lims.append([Tmin_s,Tbar,Tmax_s])
+            # self.k_below_s.append(ma.masked_where(self.mask,k_below_s.astype(np.int8)))
+            # self.r_above_s.append(ma.masked_where(d0mask,r_above_s.astype(np.float32)))
+            # self.S_s.append(ma.masked_where(d0mask,S_s))
+            # self.S_s_lims.append([Smin_s,Sbar,Smax_s])
 
-        self.active = active
-        self.data.nos = ma.masked_where(d0mask,Mg)
-        self.z_s = ma.masked_where(d0mask,z_s)
-        self.incrop_s = groundmask
-        self.outcrop_s = outcropmask
-        self.z_median_km = ma.median(self.z_s)*1.e-3
-        self.sig_s,self.sig_s_zmed = [ma.masked_where(d0mask,x.T) for x in self.siginterpolate(T.T,S.T,
-                                           k_below_s.T,r_above_s.T,active.T, self.depth_km,self.z_median_km)]
-        self.T_s = ma.masked_where(d0mask,T_s)
-        self.T_s_lims = [Tmin_s,Tbar,Tmax_s]
-        self.k_below_s = ma.masked_where(self.mask,k_below_s.astype(np.int8))
-        self.r_above_s = ma.masked_where(d0mask,r_above_s.astype(np.float32))
-        self.S_s = ma.masked_where(d0mask,S_s)
-        self.S_s_lims = [Smin_s,Sbar,Smax_s]
+            nos_list.append(ma.masked_where(d0mask,Mg))
+            z_s_list.append(ma.masked_where(d0mask,z_s))
+            incrop_s_list.append(groundmask)
+            outcrop_s_list.append(outcropmask)
+            z_median_km = ma.median(z_s)*1.e-3
+            z_median_km_list.append(z_median_km)
+            sig_s,sig_s_zmed = [ma.masked_where(d0mask,x.T) for x in self.siginterpolate(T.T,S.T,
+                                               k_below_s.T,r_above_s.T,active.T, self.depth_km, z_median_km)]
+            active_list.append(active)
+            sig_s_list.append(sig_s)
+            sig_s_zmed_list.append(sig_s_zmed)
+            T_s_list.append(ma.masked_where(d0mask,T_s))
+            T_s_lims_list.append([Tmin_s,Tbar,Tmax_s])
+            k_below_s_list.append(ma.masked_where(self.mask,k_below_s.astype(np.int8)))
+            r_above_s_list.append(ma.masked_where(d0mask,r_above_s.astype(np.float32)))
+            S_s_list.append(ma.masked_where(d0mask,S_s))
+            S_s_lims_list.append([Smin_s,Sbar,Smax_s])
 
+        self.data.nos = np.stack(nos_list)
+        self.z_s  = np.stack(z_s_list)
+        self.incrop_s = np.stack(incrop_s_list)
+        self.outcrop_s = np.stack(outcrop_s_list)
+        self.z_median_km = np.stack(z_median_km_list)
+        self.sig_s = np.stack(sig_s_list)
+        self.sig_s_zmed = np.stack(sig_s_zmed_list)
+        self.active = np.stack(active_list)
+        self.T_s = np.stack(T_s_list)
+        self.S_s = np.stack(S_s_list)
+        self.T_s_lims = np.stack(T_s_lims_list)
+        self.S_s_lims = np.stack(S_s_lims_list)
+        self.k_below_s = np.stack(k_below_s_list)
+        self.r_above_s = np.stack(r_above_s_list)
+
+
+        print(self.z_s.shape)#nsigma = len(z_s_list) # 
         self.first_time_level = False
 
 
 class Z_s(Rho):
     def describe(self,montg_instance=None):
-        self.data.long_name = 'Depth of r_B = %5.2f' % montg_instance.d0
+        self.data.long_name = 'Depth of r_B surface'# = %5.2f' % montg_instance.d0
         self.data.standard_name = 'Layer depth'
         self.data.units = 'm'
 
@@ -899,6 +965,7 @@ class Z_s(Rho):
     def setlims(self):
         self.data.min, self.data.median, self.data.max = \
           self.data.nos.min(), ma.median(self.data.nos), self.data.nos.max()
+
 
 class Outcrop_s(object):
     def __init__(self,name,liked,**kwargs):#,assocd,**kwargs):
@@ -969,7 +1036,7 @@ class Passive_s(Z_s):
 
 class Sigma0_s(Z_s):
     def describe(self,montg_instance=None):
-        self.data.long_name = 'Potential density on r_B = %5.2f' % montg_instance.d0
+        self.data.long_name = 'Potential density on r_B surface' #= %5.2f' % montg_instance.d0
         self.data.standard_name = 'Layer sigma0'
         self.data.units = 'kg/m^3'
 
@@ -990,13 +1057,13 @@ class SigmaMedian_s(Sigma0_s):
     def calc(self,montg_instance):
         self.data.nos = montg_instance.sig_s_zmed
         self.data.long_name = \
-          'Potential density ref to %5.2f km on r_B = %5.2f' %(montg_instance.z_median_km, montg_instance.d0)
+          'Potential density ref to median r_b surface depth'#%5.2f km on r_B = %5.2f' %(montg_instance.z_median_km, montg_instance.d0)
         self.setlims()
 
 
 class T_s(Rho):
     def describe(self,montg_instance=None):
-        self.data.long_name = 'Temperature on r_B = %5.2f' % montg_instance.d0
+        self.data.long_name = 'Temperature on r_B surface'#= %5.2f' % montg_instance.d0
         self.data.standard_name = 'Layer temperature'
         self.data.units = 'deg C'
 
@@ -1010,7 +1077,7 @@ class T_s(Rho):
 
 class S_s(T_s):
     def describe(self,montg_instance=None):
-        self.data.long_name = 'Salinity on r_B = %5.2f' % montg_instance.d0
+        self.data.long_name = 'Salinity on r_B surface'# = %5.2f' % montg_instance.d0
         self.data.standard_name = 'Layer salinity'
         self.data.units = 'psu'
 
@@ -1451,7 +1518,7 @@ if __name__ == '__main__':
                         nargs= '*',default=[])
 
     parser.add_argument('--density',dest='density',
-                        help='layer density for layer output',type=float,default=None)
+                        help='layer densities for layer output',nargs='*', type=float,default=None)
     parser.add_argument('--depth_km',dest='depth_km',
                         help='reference depth in km for sigma_s',type=float,default=0.)
     parser.add_argument('--TS0',dest='TS0',
@@ -1574,9 +1641,11 @@ if __name__ == '__main__':
 
     tracstr = '_'.join([t.replace('_s','') for t in args.xtracers])
     if args.density is not None:
-        tracstr = '%s_%g' % (tracstr,args.density)
+        tracstr = f'{tracstr}_'+'_'.join(f"{d:0.2f}" for d in args.density)
 
     outname = '%s_%s_%s.nc' % (args.runname,fileyrs,tracstr)
+    print(outname)
+
     # sys.exit(outname)
 
     def make_2_slices(hbounds, wideslice=True):
@@ -1700,6 +1769,13 @@ if __name__ == '__main__':
         rho.working(meshes)
         rho.calc(tdict['T'],tdict['S'])
         idict['rho'] = rho.data
+
+    if inargs('rb'):
+        rb = BoussinesqR2('rb',tdict['T'], neos=args.neos)
+        T0,S0 = args.TS0
+        rb.working(meshes, T0=T0, S0=S0, depth_km=args.depth_km)
+        rb.calc(tdict['T'],tdict['S'])
+        idict['rb'] = rb.data
 
     if inargs('TS'):
         TS = BinTS('TS',tdict['T'])
@@ -1892,82 +1968,85 @@ if __name__ == '__main__':
     print (f'time  after setting output details into output file is {t01-t00}\n')
 
     def do_on_file():
-            if inargs('rho'):
-                rho.calc(tdict['T'],tdict['S'])
+        if inargs('rho'):
+            rho.calc(tdict['T'],tdict['S'])
 
-            if inargs('TS'):
-                TS.calc(tdict['T'],tdict['S'])
+        if inargs('rb'):
+            rb.calc(tdict['T'],tdict['S'])
 
-            if inargs('ddy_lspv'):
-                ddy_lspv.calc(tdict['lspv'],meshes)
+        if inargs('TS'):
+            TS.calc(tdict['T'],tdict['S'])
 
-            if inargs('ddysigma'):
-                ddysigma.calc(tdict['T'],tdict['S'],meshes)
+        if inargs('ddy_lspv'):
+            ddy_lspv.calc(tdict['lspv'],meshes)
 
-            if inargs('jacobian_depth'):
-                jacobian_depth.calc(tdict['T'],tdict['S'],meshes)
+        if inargs('ddysigma'):
+            ddysigma.calc(tdict['T'],tdict['S'],meshes)
 
-            if inargs('jacobian_angle'):
-                jacobian_angle.calc(jacobian_depth)
+        if inargs('jacobian_depth'):
+            jacobian_depth.calc(tdict['T'],tdict['S'],meshes)
 
-            if inargs('bp'):
-                bpd.calc(tdict['ssh'],rho.data)
+        if inargs('jacobian_angle'):
+            jacobian_angle.calc(jacobian_depth)
 
-            if inargs('mont'):
-                mgd.calc(tdict['ssh'],tdict['T'],tdict['S'])
-                for instance in instancedict.values():
-                    instance.calc(mgd)
+        if inargs('bp'):
+            bpd.calc(tdict['ssh'],rho.data)
 
-            for x in args.passive_s:
-                instance = passive_s_dict[x]
-                trname = x[:-2]
-                instance.calc(tdict[trname],mgd)
+        if inargs('mont'):
+            mgd.calc(tdict['ssh'],tdict['T'],tdict['S'])
+            for instance in instancedict.values():
+                instance.calc(mgd)
 
-            if inargs('Sin'):
-                Sind.calc(tdict['EmP'],tdict['EmPs'],tdict['sss'])
+        for x in args.passive_s:
+            instance = passive_s_dict[x]
+            trname = x[:-2]
+            instance.calc(tdict[trname],mgd)
 
-            if inargs('Win'):
-                Wind.calc(tdict['EmP'])
+        if inargs('Sin'):
+            Sind.calc(tdict['EmP'],tdict['EmPs'],tdict['sss'])
 
-            if inargs('Bin'):
-                Bind.calc(tdict['EmPs'],tdict['Hin'],tdict['sst'],tdict['sss'])
+        if inargs('Win'):
+            Wind.calc(tdict['EmP'])
 
-            if inargs('THin'):
-                THind.calc(tdict['Hin'],tdict['EmP'],tdict['sst'])
+        if inargs('Bin'):
+            Bind.calc(tdict['EmPs'],tdict['Hin'],tdict['sst'],tdict['sss'])
 
-            if inargs('IceW'):
-                IceWd.calc(tdict['aice'],tdict['hice'])
+        if inargs('THin'):
+            THind.calc(tdict['Hin'],tdict['EmP'],tdict['sst'])
 
-            if inargs('SnowW'):
-                SnowWd.calc(tdict['aice'],tdict['hsnow'])
+        if inargs('IceW'):
+            IceWd.calc(tdict['aice'],tdict['hice'])
 
-            for xbar in inargs.arguments:
-                if xbar.endswith('bar'):
-                    x = xbar[:-3]
-                    if nemo_dimensions[x] == 3:
-                        bar3d[x].calc(idict[x],tdict['ssh'])
-                        print('%s= ' % xbar,bar3d[x].data.nos)
-                    elif nemo_dimensions[x] == 2:
-                        bar2d[x].calc(idict[x])
+        if inargs('SnowW'):
+            SnowWd.calc(tdict['aice'],tdict['hsnow'])
 
-            for zm in inargs.arguments:
-                if zm.startswith('zm'):
-                    x = zm[2:]
-                    zm3d[x].calc(idict[x],tdict.get('ssh'))
+        for xbar in inargs.arguments:
+            if xbar.endswith('bar'):
+                x = xbar[:-3]
+                if nemo_dimensions[x] == 3:
+                    bar3d[x].calc(idict[x],tdict['ssh'])
+                    print('%s= ' % xbar,bar3d[x].data.nos)
+                elif nemo_dimensions[x] == 2:
+                    bar2d[x].calc(idict[x])
 
-            for gs in inargs.arguments:
-                if gs.startswith('gs'):
-                    x = gs[2:]
-                    if len(idict[x].nos.shape)==2:
-                        gsdict[x].calc(idict[x])
-                    elif len(idict[x].nos.shape)==3:
-                        gsdict[x].calc(idict[x],tdict['ssh'])
+        for zm in inargs.arguments:
+            if zm.startswith('zm'):
+                x = zm[2:]
+                zm3d[x].calc(idict[x],tdict.get('ssh'))
 
-            if inargs('heatsum'):
-                G3Heatd.calc(idict['gsT'])
+        for gs in inargs.arguments:
+            if gs.startswith('gs'):
+                x = gs[2:]
+                if len(idict[x].nos.shape)==2:
+                    gsdict[x].calc(idict[x])
+                elif len(idict[x].nos.shape)==3:
+                    gsdict[x].calc(idict[x],tdict['ssh'])
 
-            if inargs('FWsum'):
-                G3FWd.calc(idict['gsS'],idict['gsssh'])
+        if inargs('heatsum'):
+            G3Heatd.calc(idict['gsT'])
+
+        if inargs('FWsum'):
+            G3FWd.calc(idict['gsS'],idict['gsssh'])
 
 
     def do_date(p,y,month,day,first):
