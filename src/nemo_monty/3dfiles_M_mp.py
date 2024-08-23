@@ -390,17 +390,29 @@ class Create3DCDF():
             xNd.standard_name = "i-index"
             xNd.long_name = "NEMO i-index (Fortran numbering)"
 
-        for d,dvals in other_dims_dict.items():
-            nd = len(dvals)
-            f.createDimension(d,nd)
-            xNd = f.createVariable(d,np.float32,(d,))
-            xNd[:] = np.array(dvals)
-            xNd.standard_name = d
-            xNd.long_name = d
-            if d=='sigma':
-                xNd.units = 'kg m^-3'
-                xNd.positive = 'down'
-                xNd._CoordinateAxisType = "Depth"
+        # for d,dvals in other_dims_dict.items():
+        #     nd = len(dvals)
+        #     f.createDimension(d,nd)
+        #     xNd = f.createVariable(d,np.float32,(d,))
+        #     xNd[:] = np.array(dvals)
+        #     xNd.standard_name = d
+        #     xNd.long_name = d
+        #     if d=='sigma':
+        #         xNd.units = 'kg m^-3'
+        #         xNd.positive = 'down'
+        #         xNd._CoordinateAxisType = "Depth"
+
+        if density is not None:
+            #'r' in dims:
+            nd = len(density)
+            f.createDimension('r',nd)
+            xNd = f.createVariable('r',np.float32,('r',))
+            xNd[:] = np.array(density)
+            xNd.standard_name = 'r_b'
+            xNd.long_name = 'Boussinesq r'
+            xNd.units = 'kg m^-3'
+            xNd.positive = 'down'
+            xNd._CoordinateAxisType = "Depth"
 
         # if 'x' in dims or 'y' in dims:
         #     if 'x' in dims and 'y' in dims:
@@ -419,7 +431,7 @@ class Create3DCDF():
             vtuple = ()
 
         if 'z' in dims:
-            nz, = meshes[grids[0]].gdep_0.shape
+            nz, *_ = meshes[grids[0]].gdep_0.shape
             f.createDimension('z',nz)
             xNd = f.createVariable('z',np.int32,('z',))
             xNd[:] = np.arange(nz) + 1
@@ -547,14 +559,14 @@ class Create3DCDF():
 
     def set_tracers(self,tracdict,zlib=False):
         # if fill_value==None:fill_value = netCDF4.default_fillvals['f4']
-        self.PNds ={}
+        # self.PNds ={}
         for tracer in tracdict.values():
             trD = tracer.__dict__
             if tracer._FillValue is None:
                 fill_value = netCDF4.default_fillvals[tracer.nos.dtype.str[-2:]]
             else:
                 fill_value = tracer._FillValue
-
+            print(tracer.name, nemo_mean_names.get(tracer.name,tracer.name),tracer.dimensions)
             Nd = self.f.createVariable(nemo_mean_names.get(tracer.name,tracer.name),
                                        tracer.nos.dtype,tracer.dimensions,
                                        fill_value=fill_value, zlib=zlib)
@@ -821,6 +833,9 @@ class Montgomery(Rho):
         else:
             self.deltaS = 0.2
 
+        dimensions = (self.data.dimensions[0], 'r') + self.data.dimensions[1:]
+        self.data.dimensions = dimensions
+        
         self.grav = 9.81
         self.rrho0 = 1./1026.
         self.first_time_level = True
@@ -947,7 +962,6 @@ class Montgomery(Rho):
         self.k_below_s = np.stack(k_below_s_list)
         self.r_above_s = np.stack(r_above_s_list)
 
-
         print(self.z_s.shape)#nsigma = len(z_s_list) # 
         self.first_time_level = False
 
@@ -957,6 +971,7 @@ class Z_s(Rho):
         self.data.long_name = 'Depth of r_B surface'# = %5.2f' % montg_instance.d0
         self.data.standard_name = 'Layer depth'
         self.data.units = 'm'
+        self.data.dimensions = montg_instance.data.dimensions
 
     def calc(self,montg_instance):
         self.data.nos = montg_instance.z_s
@@ -977,10 +992,12 @@ class Outcrop_s(object):
         self.data = data_like(liked,name)
         self.data._FillValue = self._FillValue
         self.describe(**kwargs)
+
     def describe(self,montg_instance=None):
-        self.data.long_name = 'Outcrop region for  r_B = %5.2f' % montg_instance.d0
+        self.data.long_name = 'Outcrop region for  r_B surface'#= %5.2f' % montg_instance.d0
         self.data.standard_name = 'Outcrop'
         self.data.units = '#'
+        self.data.dimensions = montg_instance.data.dimensions
 
     def calc(self,montg_instance):
         self.data.nos = montg_instance.outcrop_s.astype(np.uint8)
@@ -989,9 +1006,11 @@ class Outcrop_s(object):
 class Incrop_s(Outcrop_s):
 
     def describe(self,montg_instance=None):
-        self.data.long_name = 'Incrop region for  r_B = %5.2f' % montg_instance.d0
+        self.data.long_name = 'Incrop region for  r_B surface'#= %5.2f' % montg_instance.d0
         self.data.standard_name = 'Incrop'
+        self.data.dimensions = montg_instance.data.dimensions
         self.data.units = '#'
+        self.data.dimensions = montg_instance.data.dimensions
 
     def calc(self,montg_instance):
         self.data.nos = montg_instance.incrop_s.astype(np.uint8)
@@ -1009,12 +1028,13 @@ class K_below_s(object):
         self.describe(**kwargs)
 
     def describe(self,montg_instance=None):
-        self.data.long_name = 'Fortran k index just above surface r_B = %5.2f' % montg_instance.d0
+        self.data.long_name = 'Fortran k index just above surface r_B surface'# = %5.2f' % montg_instance.d0
         self.data.standard_name = 'Layer index'
         self.data.units = '#'
 
     def calc(self,montg_instance):
         self.data.nos = montg_instance.k_below_s
+        self.data.dimensions = montg_instance.data.dimensions
 
 
 class Passive_s(Z_s):
@@ -1026,6 +1046,7 @@ class Passive_s(Z_s):
 
         self.data.long_name = '%s  on %s' % (long_trname, montg_instance.d0)
         self.data.standard_name = '%s  on %s' % (trname, montg_instance.d0)
+        self.data.dimensions = montg_instance.data.dimensions
 
     def calc(self,tr, montg_instance):
     #  use method from montgomery instance, which has previously output k_lower,r_upper for w-grid as well
@@ -1039,6 +1060,8 @@ class Sigma0_s(Z_s):
         self.data.long_name = 'Potential density on r_B surface' #= %5.2f' % montg_instance.d0
         self.data.standard_name = 'Layer sigma0'
         self.data.units = 'kg/m^3'
+        self.data.dimensions = montg_instance.data.dimensions
+
 
     def calc(self,montg_instance):
         self.data.nos = montg_instance.sig_s
@@ -1051,13 +1074,14 @@ class Sigma0_s(Z_s):
 
 class SigmaMedian_s(Sigma0_s):
     def describe(self,montg_instance=None):
-        self.data.standard_name = 'Layer sigma'
+        self.data.standard_name = 'Layer sigma at median depth'
         self.data.units = 'kg/m^3'
+        self.data.dimensions = montg_instance.data.dimensions
 
     def calc(self,montg_instance):
         self.data.nos = montg_instance.sig_s_zmed
         self.data.long_name = \
-          'Potential density ref to median r_b surface depth'#%5.2f km on r_B = %5.2f' %(montg_instance.z_median_km, montg_instance.d0)
+          'Potential density ref to median r_b surface depth'#%5.2f km on r_B surface'#= %5.2f' %(montg_instance.z_median_km, montg_instance.d0)
         self.setlims()
 
 
@@ -1066,6 +1090,7 @@ class T_s(Rho):
         self.data.long_name = 'Temperature on r_B surface'#= %5.2f' % montg_instance.d0
         self.data.standard_name = 'Layer temperature'
         self.data.units = 'deg C'
+        self.data.dimensions = montg_instance.data.dimensions
 
     def calc(self,montg_instance):
         self.data.nos = montg_instance.T_s
@@ -1073,13 +1098,16 @@ class T_s(Rho):
         self.setlims(lims)
 
     def setlims(self,lims):
-        self.data.min, self.data.median, self.data.max = lims
+        print(lims.shape)
+        a, b, c = lims.T
+        self.data.min, self.data.median, self.data.max = lims.T
 
 class S_s(T_s):
     def describe(self,montg_instance=None):
         self.data.long_name = 'Salinity on r_B surface'# = %5.2f' % montg_instance.d0
         self.data.standard_name = 'Layer salinity'
         self.data.units = 'psu'
+        self.data.dimensions = montg_instance.data.dimensions
 
     def calc(self,montg_instance):
         self.data.nos = montg_instance.S_s
@@ -1826,6 +1854,7 @@ if __name__ == '__main__':
         instancedict = {}
         for x,y in layerdict.items():
             if inargs(x):
+####perhaps use mgd here for size, dimension etc
                 instance = y(x,tdict['ssh'],montg_instance=mgd)
                 instance.calc(mgd)
                 instancedict[x] = instance
