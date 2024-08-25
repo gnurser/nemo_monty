@@ -836,6 +836,10 @@ class Montgomery(Rho):
         dimensions = (self.data.dimensions[0], 'r') + self.data.dimensions[1:]
         self.data.dimensions = dimensions
         
+        ny, nx = Td.nos.shape[-2:]
+        nr = self.n_sigma
+        self.data.nos = ma.masked_array(np.empty([nr,ny,nx]))
+        
         self.grav = 9.81
         self.rrho0 = 1./1026.
         self.first_time_level = True
@@ -929,7 +933,10 @@ class Montgomery(Rho):
             # self.S_s.append(ma.masked_where(d0mask,S_s))
             # self.S_s_lims.append([Smin_s,Sbar,Smax_s])
 
-            nos_list.append(ma.masked_where(d0mask,Mg))
+            # for s in out_list:
+            #     setattr(object,s.name,value)
+            self.data.nos[i,...] = ma.masked_where(d0mask,Mg)[...]
+            # nos_list.append(ma.masked_where(d0mask,Mg))
             z_s_list.append(ma.masked_where(d0mask,z_s))
             incrop_s_list.append(groundmask)
             outcrop_s_list.append(outcropmask)
@@ -947,7 +954,7 @@ class Montgomery(Rho):
             S_s_list.append(ma.masked_where(d0mask,S_s))
             S_s_lims_list.append([Smin_s,Sbar,Smax_s])
 
-        self.data.nos = np.stack(nos_list)
+#        self.data.nos = np.stack(nos_list)
         self.z_s  = np.stack(z_s_list)
         self.incrop_s = np.stack(incrop_s_list)
         self.outcrop_s = np.stack(outcrop_s_list)
@@ -962,7 +969,12 @@ class Montgomery(Rho):
         self.k_below_s = np.stack(k_below_s_list)
         self.r_above_s = np.stack(r_above_s_list)
 
-        print(self.z_s.shape)#nsigma = len(z_s_list) # 
+        # ny, nx = T.shape[-2]
+        # nr = self.n_sigma
+        # self.data.nos = ma.masked_array(np.empty([nr,ny,nx]))
+
+        print(self.z_s.shape)#nsigma = len(z_s_list) #
+        
         self.first_time_level = False
 
 
