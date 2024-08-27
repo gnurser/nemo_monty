@@ -792,7 +792,8 @@ class BoussinesqR(object):
         return (self.rho - self.drho0).reshape(self.shape)
 
 class Montgomery(Rho):
-    def working(self,meshes,Td,T0=0,S0=35.,depth_km=0.,deltaT=None, deltaS=None, iterate_TS0='none'):
+    def working(self,meshes,Td,T0=0,S0=35.,depth_km=0.,deltaT=None, deltaS=None,
+                iterate_TS0='none', layer_dict={}):
         Td.nos = ma.masked_where(np.isnan(Td.nos), Td.nos)
         e3w = put_z_inner(meshes['w'].e3)
         e3t = put_z_inner(meshes['t'].e3)
@@ -833,13 +834,7 @@ class Montgomery(Rho):
         else:
             self.deltaS = 0.2
 
-        dimensions = (self.data.dimensions[0], 'r') + self.data.dimensions[1:]
-        self.data.dimensions = dimensions
-        
-        ny, nx = Td.nos.shape[-2:]
-        nr = self.n_sigma
-        self.data.nos = ma.masked_array(np.empty([nr,ny,nx]))
-        
+
         self.grav = 9.81
         self.rrho0 = 1./1026.
         self.first_time_level = True
@@ -849,7 +844,11 @@ class Montgomery(Rho):
         self.data.standard_name = 'Montgomery function'
         self.data.units = 'm^2s^-2'
         self.d0 = d0
+        dimensions = (self.data.dimensions[0], 'r') + self.data.dimensions[1:]
+        self.data.dimensions = dimensions
+        self.ny, self.nx = self.data.shape[-2:]
         self.n_sigma = len(self.d0)
+        self.data.nos = ma.masked_array(np.empty([self.n_sigma,self.ny,self.nx]))
 
     def calc(self,sshd,Td,Sd):
         depth = self.depth
@@ -916,62 +915,20 @@ class Montgomery(Rho):
             t0 = time.time()
             print( 'time to calculate Montgomery',t0-t1)
 
-            # self.data.nos.append(ma.masked_where(d0mask,Mg))
-            # self.z_s.append(ma.masked_where(d0mask,z_s))
-            # self.incrop_s.append(groundmask)
-            # self.outcrop_s.append(outcropmask)
-            # self.z_median_km.append(ma.median(self.z_s)*1.e-3)
-            # sig_s,sig_s_zmed = [ma.masked_where(d0mask,x.T) for x in self.siginterpolate(T.T,S.T,
-            #                                    k_below_s.T,r_above_s.T,active.T, self.depth_km,self.z_median_km)]
-            # self.active.append(active)
-            # self.sig_s.append(sig_s)
-            # self.sig_s_zmed.append(sig_s_zmed)
-            # self.T_s.append(ma.masked_where(d0mask,T_s))
-            # self.T_s_lims.append([Tmin_s,Tbar,Tmax_s])
-            # self.k_below_s.append(ma.masked_where(self.mask,k_below_s.astype(np.int8)))
-            # self.r_above_s.append(ma.masked_where(d0mask,r_above_s.astype(np.float32)))
-            # self.S_s.append(ma.masked_where(d0mask,S_s))
-            # self.S_s_lims.append([Smin_s,Sbar,Smax_s])
-
-            # for s in out_list:
-            #     setattr(object,s.name,value)
-            self.data.nos[i,...] = ma.masked_where(d0mask,Mg)[...]
-            # nos_list.append(ma.masked_where(d0mask,Mg))
-            z_s_list.append(ma.masked_where(d0mask,z_s))
-            incrop_s_list.append(groundmask)
-            outcrop_s_list.append(outcropmask)
-            z_median_km = ma.median(z_s)*1.e-3
-            z_median_km_list.append(z_median_km)
-            sig_s,sig_s_zmed = [ma.masked_where(d0mask,x.T) for x in self.siginterpolate(T.T,S.T,
-                                               k_below_s.T,r_above_s.T,active.T, self.depth_km, z_median_km)]
-            active_list.append(active)
-            sig_s_list.append(sig_s)
-            sig_s_zmed_list.append(sig_s_zmed)
-            T_s_list.append(ma.masked_where(d0mask,T_s))
-            T_s_lims_list.append([Tmin_s,Tbar,Tmax_s])
-            k_below_s_list.append(ma.masked_where(self.mask,k_below_s.astype(np.int8)))
-            r_above_s_list.append(ma.masked_where(d0mask,r_above_s.astype(np.float32)))
-            S_s_list.append(ma.masked_where(d0mask,S_s))
-            S_s_lims_list.append([Smin_s,Sbar,Smax_s])
-
-#        self.data.nos = np.stack(nos_list)
-        self.z_s  = np.stack(z_s_list)
-        self.incrop_s = np.stack(incrop_s_list)
-        self.outcrop_s = np.stack(outcrop_s_list)
-        self.z_median_km = np.stack(z_median_km_list)
-        self.sig_s = np.stack(sig_s_list)
-        self.sig_s_zmed = np.stack(sig_s_zmed_list)
-        self.active = np.stack(active_list)
-        self.T_s = np.stack(T_s_list)
-        self.S_s = np.stack(S_s_list)
-        self.T_s_lims = np.stack(T_s_lims_list)
-        self.S_s_lims = np.stack(S_s_lims_list)
-        self.k_below_s = np.stack(k_below_s_list)
-        self.r_above_s = np.stack(r_above_s_list)
-
-        # ny, nx = T.shape[-2]
-        # nr = self.n_sigma
-        # self.data.nos = ma.masked_array(np.empty([nr,ny,nx]))
+        self.active = active
+        self.data.nos[i] = ma.masked_where(d0mask,Mg)
+        self.z_s = ma.masked_where(d0mask,z_s)
+        self.incrop_s = groundmask
+        self.outcrop_s = outcropmask
+        self.z_median_km = ma.median(self.z_s)*1.e-3
+        self.sig_s,self.sig_s_zmed = [ma.masked_where(d0mask,x.T) for x in self.siginterpolate(T.T,S.T,
+                                           k_below_s.T,r_above_s.T,active.T, self.depth_km,self.z_median_km)]
+        self.T_s = ma.masked_where(d0mask,T_s)
+        self.T_s_lims = [Tmin_s,Tbar,Tmax_s]
+        self.k_below_s = ma.masked_where(self.mask,k_below_s.astype(np.int8))
+        self.r_above_s = ma.masked_where(d0mask,r_above_s.astype(np.float32))
+        self.S_s = ma.masked_where(d0mask,S_s)
+        self.S_s_lims = [Smin_s,Sbar,Smax_s]
 
         print(self.z_s.shape)#nsigma = len(z_s_list) #
         
@@ -979,14 +936,15 @@ class Montgomery(Rho):
 
 
 class Z_s(Rho):
-    def describe(self,montg_instance=None):
-        self.data.long_name = 'Depth of r_B surface'# = %5.2f' % montg_instance.d0
+    def describe(self,montg=None):
+        self.data.long_name = 'Depth of r_B surface'# = %5.2f' % montg.d0
         self.data.standard_name = 'Layer depth'
         self.data.units = 'm'
-        self.data.dimensions = montg_instance.data.dimensions
+        self.data.dimensions = montg.data.dimensions
+        self.data.nos = ma.masked_array(np.empty([montg.n_sigma,montg.ny,montg.nx]))
 
-    def calc(self,montg_instance):
-        self.data.nos = montg_instance.z_s
+    def calc(self,montg):
+        self.data.nos = montg.z_s
         self.setlims()
 
     def setlims(self):
@@ -1005,27 +963,28 @@ class Outcrop_s(object):
         self.data._FillValue = self._FillValue
         self.describe(**kwargs)
 
-    def describe(self,montg_instance=None):
-        self.data.long_name = 'Outcrop region for  r_B surface'#= %5.2f' % montg_instance.d0
+    def describe(self,montg=None):
+        self.data.long_name = 'Outcrop region for  r_B surface'#= %5.2f' % montg.d0
         self.data.standard_name = 'Outcrop'
         self.data.units = '#'
-        self.data.dimensions = montg_instance.data.dimensions
+        self.data.dimensions = montg.data.dimensions
+        self.data.nos = ma.masked_array(np.empty([montg.n_sigma,montg.ny,montg.nx],dtype=bool)))
 
-    def calc(self,montg_instance):
-        self.data.nos = montg_instance.outcrop_s.astype(np.uint8)
+    def calc(self,montg):
+        self.data.nos = montg.outcrop_s.astype(np.uint8)
         #self.setlims()
 
 class Incrop_s(Outcrop_s):
 
-    def describe(self,montg_instance=None):
-        self.data.long_name = 'Incrop region for  r_B surface'#= %5.2f' % montg_instance.d0
+    def describe(self,montg=None):
+        self.data.long_name = 'Incrop region for  r_B surface'#= %5.2f' % montg.d0
         self.data.standard_name = 'Incrop'
-        self.data.dimensions = montg_instance.data.dimensions
         self.data.units = '#'
-        self.data.dimensions = montg_instance.data.dimensions
+        self.data.dimensions = montg.data.dimensions
+        self.data.nos = ma.masked_array(np.empty([montg.n_sigma,montg.ny,montg.nx],dtype=bool))
 
-    def calc(self,montg_instance):
-        self.data.nos = montg_instance.incrop_s.astype(np.uint8)
+    def calc(self,montg):
+        self.data.nos = montg.incrop_s.astype(np.uint8)
         #self.setlims()
 
 class K_below_s(object):
@@ -1039,44 +998,47 @@ class K_below_s(object):
         self.data._FillValue = self._FillValue
         self.describe(**kwargs)
 
-    def describe(self,montg_instance=None):
-        self.data.long_name = 'Fortran k index just above surface r_B surface'# = %5.2f' % montg_instance.d0
+    def describe(self,montg=None):
+        self.data.long_name = 'Fortran k index just above surface r_B surface'# = %5.2f' % montg.d0
         self.data.standard_name = 'Layer index'
         self.data.units = '#'
+        self.data.dimensions = montg.data.dimensions
+        self.data.nos = ma.masked_array(np.empty([montg.n_sigma,montg.ny,montg.nx],dtype=int32))
 
-    def calc(self,montg_instance):
-        self.data.nos = montg_instance.k_below_s
-        self.data.dimensions = montg_instance.data.dimensions
+    def calc(self,montg):
+        self.data.nos = montg.k_below_s
+        self.data.dimensions = montg.data.dimensions
 
 
 class Passive_s(Z_s):
-    def describe(self,montg_instance=None):
+    def describe(self,montg=None):
         if self.data.name=='PWT_s':
             long_trname = 'Pacific Water tracer'
             standard_name = 'Pacific Water tracer'
             self.data.units = '#'
 
-        self.data.long_name = '%s  on %s' % (long_trname, montg_instance.d0)
-        self.data.standard_name = '%s  on %s' % (trname, montg_instance.d0)
-        self.data.dimensions = montg_instance.data.dimensions
+        self.data.long_name = '%s  on %s' % (long_trname, montg.d0)
+        self.data.standard_name = '%s  on %s' % (trname, montg.d0)
+        self.data.dimensions = montg.data.dimensions
+        self.data.nos =  ma.masked_array(np.empty([nr,self.ny,self.nx])
 
-    def calc(self,tr, montg_instance):
+    def calc(self,tr, montg):
     #  use method from montgomery instance, which has previously output k_lower,r_upper for w-grid as well
-        p_s = tracer_interpolate(tr.nos,montg_instance.k_below_s,montg_instance.r_above_s,montg_instance.active)
-        self.data.nos = ma.masked_where(~montg_instance.active, p_s)
+        p_s = tracer_interpolate(tr.nos,montg.k_below_s,montg.r_above_s,montg.active)
+        self.data.nos = ma.masked_where(~montg.active, p_s)
         self.setlims()
 
 
 class Sigma0_s(Z_s):
-    def describe(self,montg_instance=None):
-        self.data.long_name = 'Potential density on r_B surface' #= %5.2f' % montg_instance.d0
+    def describe(self,montg=None):
+        self.data.long_name = 'Potential density on r_B surface' #= %5.2f' % montg.d0
         self.data.standard_name = 'Layer sigma0'
         self.data.units = 'kg/m^3'
-        self.data.dimensions = montg_instance.data.dimensions
+        self.data.dimensions = montg.data.dimensions
 
 
-    def calc(self,montg_instance):
-        self.data.nos = montg_instance.sig_s
+    def calc(self,montg):
+        self.data.nos = montg.sig_s
         self.setlims()
 
     def setlims(self):
@@ -1085,28 +1047,28 @@ class Sigma0_s(Z_s):
 
 
 class SigmaMedian_s(Sigma0_s):
-    def describe(self,montg_instance=None):
+    def describe(self,montg=None):
         self.data.standard_name = 'Layer sigma at median depth'
         self.data.units = 'kg/m^3'
-        self.data.dimensions = montg_instance.data.dimensions
+        self.data.dimensions = montg.data.dimensions
 
-    def calc(self,montg_instance):
-        self.data.nos = montg_instance.sig_s_zmed
+    def calc(self,montg):
+        self.data.nos = montg.sig_s_zmed
         self.data.long_name = \
-          'Potential density ref to median r_b surface depth'#%5.2f km on r_B surface'#= %5.2f' %(montg_instance.z_median_km, montg_instance.d0)
+          'Potential density ref to median r_b surface depth'#%5.2f km on r_B surface'#= %5.2f' %(montg.z_median_km, montg.d0)
         self.setlims()
 
 
 class T_s(Rho):
-    def describe(self,montg_instance=None):
-        self.data.long_name = 'Temperature on r_B surface'#= %5.2f' % montg_instance.d0
+    def describe(self,montg=None):
+        self.data.long_name = 'Temperature on r_B surface'#= %5.2f' % montg.d0
         self.data.standard_name = 'Layer temperature'
         self.data.units = 'deg C'
-        self.data.dimensions = montg_instance.data.dimensions
+        self.data.dimensions = montg.data.dimensions
 
-    def calc(self,montg_instance):
-        self.data.nos = montg_instance.T_s
-        lims = montg_instance.T_s_lims
+    def calc(self,montg):
+        self.data.nos = montg.T_s
+        lims = montg.T_s_lims
         self.setlims(lims)
 
     def setlims(self,lims):
@@ -1115,15 +1077,15 @@ class T_s(Rho):
         self.data.min, self.data.median, self.data.max = lims.T
 
 class S_s(T_s):
-    def describe(self,montg_instance=None):
-        self.data.long_name = 'Salinity on r_B surface'# = %5.2f' % montg_instance.d0
+    def describe(self,montg=None):
+        self.data.long_name = 'Salinity on r_B surface'# = %5.2f' % montg.d0
         self.data.standard_name = 'Layer salinity'
         self.data.units = 'psu'
-        self.data.dimensions = montg_instance.data.dimensions
+        self.data.dimensions = montg.data.dimensions
 
-    def calc(self,montg_instance):
-        self.data.nos = montg_instance.S_s
-        lims = montg_instance.S_s_lims
+    def calc(self,montg):
+        self.data.nos = montg.S_s
+        lims = montg.S_s_lims
         self.setlims(lims)
 
 
@@ -1855,27 +1817,30 @@ if __name__ == '__main__':
         mgd = Montgomery('mont',tdict['ssh'],neos=args.neos, d0=args.density)
         T0,S0 = args.TS0
         deltaT, deltaS = args.deltaTS
-        mgd.working(meshes,tdict['T'],T0=T0,S0=S0,depth_km=args.depth_km, deltaT=deltaT, deltaS=deltaS,
-                    iterate_TS0 = args.iterate_TS0)
+        all_layerdict = {'k_s':K_below_s,'z_s':Z_s,'sigma_s':Sigma0_s,
+                     'sigma_med_s':SigmaMedian_s,'T_s':T_s,'S_s':S_s,
+                     'outcrop_s':Outcrop_s, 'incrop_s':Incrop_s}
+        layerdict = {a:all_layerdict[a] for a in all_layerdict.keys() if a in inargs}
+
+        mgd.working(meshes,tdict['T'],T0=T0,S0=S0,
+                    depth_km=args.depth_km, deltaT=deltaT, deltaS=deltaS,
+                    iterate_TS0 = args.iterate_TS0,
+                    layer_dict=layer_dict)
         mgd.calc(tdict['ssh'],tdict['T'],tdict['S'])
         idict['mont'] = mgd.data
 
-        layerdict = {'k_s':K_below_s,'z_s':Z_s,'sigma_s':Sigma0_s,
-                     'sigma_med_s':SigmaMedian_s,'T_s':T_s,'S_s':S_s,
-                     'outcrop_s':Outcrop_s, 'incrop_s':Incrop_s}
         instancedict = {}
         for x,y in layerdict.items():
-            if inargs(x):
-####perhaps use mgd here for size, dimension etc
-                instance = y(x,tdict['ssh'],montg_instance=mgd)
-                instance.calc(mgd)
-                instancedict[x] = instance
-                idict[x] = instance.data
+            #perhaps use mgd here for size, dimension etc
+            instance = y(x,tdict['ssh'],montg=mgd)
+            instance.calc(mgd)
+            instancedict[x] = instance
+            idict[x] = instance.data
 
     passive_s_dict={}
     for x in args.passive_s:
         trname = x[:-2]
-        pp = Passive_s(x,tdict['ssh'],montg_instance=mgd)
+        pp = Passive_s(x,tdict['ssh'],montg=mgd)
         pp.calc(tdict[trname], mgd)
         passive_s_dict[x] = pp
         idict[x] = pp.data
