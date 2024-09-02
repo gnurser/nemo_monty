@@ -274,7 +274,8 @@ class DCDF4(object):
         data.dimensions = self.change_tup(Nd.dimensions,dep=u'z')
         # split so depth doesn't get changed into time-counter
         data.dimensions = self.change_tup(data.dimensions,t=u'time_counter')
-        for g in (grid, NdD.get('grid'), self.gridtrac.from_tracer(name), self.grid_from_depth(data.dimensions),self.grid):
+        for g in (grid, NdD.get('grid'), self.gridtrac.from_tracer(name),
+                  self.grid_from_depth(data.dimensions),self.grid):
             if g is not None:
                 data.grid = g
                 break
@@ -283,8 +284,11 @@ class DCDF4(object):
 
         data._FillValue = None
         for att in set(['coordinates','units','long_name','_FillValue',
-                        'online_operation','standard_name','short_name']) & set(NdD.keys()):
+                        'online_operation','standard_name','short_name']) & \
+                        set(NdD.keys()):
             data.__setattr__(att,NdD[att])
+
+        print(data.coordinates)
 
         if 'coordinates' in data.__dict__.keys():
             data.coordinates = change_str(data.coordinates,
@@ -351,7 +355,7 @@ class DCDF4(object):
 
         t1 = time.time()
         print(f'reading {data.name} slice= {slice} shape= {data.nos.shape}'
-          f' took {(t1-t0):7.4f} seconds')
+              f' took {(t1-t0):7.4f} seconds')
         return data
 
     def __call__(self,tracers, meshes=None):
@@ -556,6 +560,8 @@ class Create3DCDF():
             monthlen[-1] = 365.
             self.midmonths = dict(zip(months,midmonths))
             self.lengthmonths = dict(zip(months,monthlen))
+        elif time_index_name == 'time_centered':
+            pass
 
     def set_tracers(self,tracdict,zlib=False):
         # if fill_value==None:fill_value = netCDF4.default_fillvals['f4']
@@ -608,7 +614,7 @@ class Create3DCDF():
 
         # print 'month/year =',month,dtime
         # print self.lengthmonths
-        self.time_indexNd[l] = time_index_pp5
+        self.time_indexNd[l] = time_centered
         self.dtime_indexNd[l] = dtime
 
         #print( tdict.keys())
@@ -1790,7 +1796,8 @@ if __name__ == '__main__':
             pathname = model_run(passno=passno0,years=year0,month=months[0],fext=fext,day5=days[0])
 
 
-        cdf_file = DCDF4(pathname, checkmask=args.checkmask)
+        cdf_file = DCDF4(pathname, checkmask=args.checkmask,
+                         time_index_name='time_centered')
         print(fexttracerd[fext])
         P = cdf_file(fexttracerd[fext], meshes=meshes)
         tdict.update(P)
@@ -2014,9 +2021,10 @@ if __name__ == '__main__':
     D.f.write (f'\ntime  after setting up output variables is {(t01-t00):7.4f}')
 
     threedcdf = Create3DCDF(outgrids,meshes,
-                          outpath=pjoin(args.outdir,outname),
-                          time_index_name='years',dims=args.dims,
-                          other_dims_dict = other_dims_dict,density = args.density)
+                            outpath=pjoin(args.outdir,outname),
+                            time_index_name='time_centered', dims=args.dims,
+                            other_dims_dict = other_dims_dict,
+                            density = args.density)
 
     threedcdf.set_tracers(xdict,zlib=True)
 
@@ -2133,7 +2141,7 @@ if __name__ == '__main__':
 
     def do_infile(infile):
         t01 = time.time()
-        print (f'\ntime  before processing {infile} etc is {t01-t00:7.4f}')
+        print (f'time  before processing {infile} etc is {t01-t00:7.4f}')
         for fext in fexts:
 
             pathname = infile[:-3]
