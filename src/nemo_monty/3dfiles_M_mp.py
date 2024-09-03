@@ -194,18 +194,19 @@ class DCDF4(object):
     def set_default_slice(cls,default_slice):
         cls.default_slice = default_slice
 
-    def __init__(self, f_or_fname, grid=None, slice=None, checkmask=False):
+    def __init__(self, f_or_fname, grid=None, slice=None, checkmask=False,
+                 time_index_name='time_centered'):
         if isinstance(f_or_fname,netCDF4.Dataset):
             f = f_or_fname
             self.f_keep = True
-        elif isinstance(f_or_fname,str):
+        elif isinstance(f_or_fname,str) or isinstance(f_or_fname, Path):
         # elif isinstance(f_or_fname,basestring):
             f = netCDF4.Dataset(f_or_fname)
             f.set_auto_mask(False)
             print('Opened %s' % f_or_fname)
             self.f_keep = False
         else:
-            sys.exit('neither string nor netCDF4.Dataset')
+            sys.exit('neither string nor Path nor  netCDF4.Dataset')
 
         self.f = f
         self.dimensions = f.dimensions
@@ -221,6 +222,7 @@ class DCDF4(object):
 
     def getNd(self,name):
         keys = self.fv.keys()
+        print(keys)
         if name not in keys:
             nemonames = nemo_names.get(name)
             if not nemonames:
@@ -264,7 +266,7 @@ class DCDF4(object):
                 data.nos = x
         t1 = time.time()
         D.f.write(f'\nreading {data.name} slice= {slice} shape= x.shape'
-         f' took {(t1-t0):7.4f} seconds')
+                  f' took {t1-t0:7.4f} seconds')
 
     def get_tracer(self,name,grid=None,dtype=None,meshes=None):
         t0 = time.time()
@@ -272,8 +274,10 @@ class DCDF4(object):
         Nd = self.getNd(name)
         NdD = Nd.__dict__
         data.dimensions = self.change_tup(Nd.dimensions,dep=u'z')
+        print(data.dimensions)
         # split so depth doesn't get changed into time-counter
         data.dimensions = self.change_tup(data.dimensions,t=u'time_counter')
+        print(data.dimensions)
         for g in (grid, NdD.get('grid'), self.gridtrac.from_tracer(name),
                   self.grid_from_depth(data.dimensions),self.grid):
             if g is not None:
@@ -298,6 +302,9 @@ class DCDF4(object):
                                     depth=u'gdep%s' % data.grid)
         elif 'x' in data.dimensions and 'y' in data.dimensions:
             data.coordinates = u'glam%s gphi%s' % (2*(data.grid,))
+        print(data.coordinates)
+        if 'time_counter' in data.coordinates:
+            pass #self.time_counter =
 
         if self.slice is None:
             slice = self.default_slice
@@ -355,10 +362,13 @@ class DCDF4(object):
 
         t1 = time.time()
         print(f'reading {data.name} slice= {slice} shape= {data.nos.shape}'
-              f' took {(t1-t0):7.4f} seconds')
+              f' took {t1-t0:7.4f} seconds')
         return data
 
     def __call__(self,tracers, meshes=None):
+        self.get_time=True
+        if 'time_centered' in self.fv.keys():
+            self.time_centered = self.get_tracer(tracer
         P = {}
         for tracer in tracers:
             P[tracer] = self.get_tracer(tracer, meshes=meshes)
@@ -371,7 +381,8 @@ class DCDF4(object):
 
 class Create3DCDF():
     def __init__(self,grids,meshes,outpath='scalars.nc',
-                 time_index_name='years',dims=['t','z','y','x'], other_dims_dict = {},density=None):
+                 time_index_name='years',dims=['t','z','y','x'],
+                 other_dims_dict = {},density=None):
         self.time_index_name = time_index_name
         f = netCDF4.Dataset(outpath,'w')
         self.f = f
@@ -614,14 +625,13 @@ class Create3DCDF():
 
         # print 'month/year =',month,dtime
         # print self.lengthmonths
-        self.time_indexNd[l] = time_centered
+        self.time_indexNd[l] = tdict['time_centered'].values()
         self.dtime_indexNd[l] = dtime
 
         #print( tdict.keys())
         for tracer in tdict.values():
             tracer.Nd[l,...] = tracer.nos[...].copy()
             trD = tracer.__dict__
-            
             for att in {'median','min','max','var','S0','T0'} & set(trD.keys()):
                 tracer.Nd_lims[att][l,...] = getattr(tracer,att)
 
@@ -877,10 +887,10 @@ class Montgomery(Rho):
         t0 = time.time()
         T,S = [put_z_inner(x) for x in (Td.nos.data,Sd.nos.data)]
         t1 = time.time()
-        D.f.write( f'\ntime to reverse T & S is {(t1-t0):7.4f}')
+        D.f.write( f'\ntime to reverse T & S is {t1-t0:7.4f}')
         self.rb.calculate_rho(T,S)
         t0 = time.time()
-        D.f.write( f'\ntime to calculate rho is {(t0-t1):7.4f}')
+        D.f.write( f'\ntime to calculate rho is {t0-t1:7.4f}')
 
         JM,IM = self.kmt.shape
         iterate_TS0 = self.iterate_TS0
@@ -897,14 +907,14 @@ class Montgomery(Rho):
                 t2 = time.time()
                 self.rb.calculate_drho0(T0,S0)
                 t4 = time.time()
-                D.f.write( f'\ntime to calculate drho0 is {(t4-t2):7.4f}')
+                D.f.write( f'\ntime to calculate drho0 is {t4-t2:7.4f}')
                 #print( self.kmt.min())
                 k_below_s,r_above_s,T_s,S_s,outcropmask,groundmask = \
                   [x.T for x in self.interpolate(self.kmt.T,T.T,S.T,self.rb.rho.T,self.rb.drho0.T,d0)]
 
                 outcropmask,groundmask = outcropmask.astype(bool),groundmask.astype(bool)
                 t2 = time.time()
-                D.f.write( f'\ntime to calculate k_below is {(t2-t4):7.4f}')
+                D.f.write( f'\ntime to calculate k_below is {t2-t4:7.4f}')
                 d0mask = self.mask + groundmask + outcropmask
                 active = np.logical_not(d0mask)
                 if active.max() == False:
@@ -914,7 +924,7 @@ class Montgomery(Rho):
                 S_act =  S_s[active].ravel()
                 Smin_s,Smax_s,Sbar = S_act.min(),S_act.max(),np.median(S_act)
                 t3 = time.time()
-                D.f.write( f'\ntime to calculate medians is {(t3-t2):7.4f}')
+                D.f.write( f'\ntime to calculate medians is {t3-t2:7.4f}')
 
                 D.f.write( f'\non density={d0} Tmin Tmax Tmedian='
                            f'{Tmin_s:7.4f} {Tmax_s:7.4f} {Tbar:7.4f}')
@@ -929,7 +939,7 @@ class Montgomery(Rho):
                 else:
                     T0,S0 = Tbar,Sbar
             t1 = time.time()
-            D.f.write( f'\ntime to find surface is {(t1-t0):7.4f}')
+            D.f.write( f'\ntime to find surface is {t1-t0:7.4f}')
 
             z_s,Mg = [x.T for x in self.mginterpolate(self.kmt.T,T.T,S.T,
                                                       self.rb.rho.T,self.rb.drho0.T,
@@ -938,7 +948,7 @@ class Montgomery(Rho):
                                                       k_below_s.T,r_above_s.T,
                                                       active.T,self.depth_km, d0)]
             t0 = time.time()
-            D.f.write( f'\ntime to calculate Montgomery {(t0-t1):7.4f}')
+            D.f.write( f'\ntime to calculate Montgomery {t0-t1:7.4f}')
 
             self.active[i] = active
             self.data.nos[i] = ma.masked_where(d0mask,Mg)[...]
@@ -1725,8 +1735,8 @@ if __name__ == '__main__':
 
     hslice,wide_hslice = make_2_slices(args.hlimits)
     t01 = time.time()
-    D.f.write (f'\ntook {(t01-t00):7.4f} to set args')
-    D.f.write (f'\ntime at after setting args is {(t01-t00):7.4f}')
+    D.f.write (f'\ntook {t01-t00:7.4f} to set args')
+    D.f.write (f'\ntime at after setting args is {t01-t00:7.4f}')
 
 
     fexttracm = FextTrac('mean')
@@ -1771,8 +1781,8 @@ if __name__ == '__main__':
 
     # data = {}
     t0 = time.time()
-    D.f.write (f'\ntook {(t0-t01):7.4f} to set meshes')
-    D.f.write (f'\ntime at after setting meshes is {(t0-t00):7.4f}')
+    D.f.write (f'\ntook {t0-t01:7.4f} to set meshes')
+    D.f.write (f'\ntime at after setting meshes is {t0-t00:7.4f}')
     tdict = {}
     xdict = {}
 
@@ -1804,8 +1814,8 @@ if __name__ == '__main__':
 
 
     t01 = time.time()
-    D.f.write (f'\ntook {(t01-t0):7.4f} to set output file')
-    D.f.write (f'\ntime at after setting up output file is {(t01-t00):7.4f}')
+    D.f.write (f'\ntook {t01-t0:7.4f} to set output file')
+    D.f.write (f'\ntime at after setting up output file is {t01-t00:7.4f}')
 
     other_dims_dict = {}
     for dataset in tdict.values():
@@ -1818,8 +1828,8 @@ if __name__ == '__main__':
     idict = tdict.copy()
 
     t0 = time.time()
-    D.f.write (f'\ntook {(t0-t01):7.4f} to set up dicts')
-    D.f.write (f'\ntime at after setting up dicts is {(t0-t00):7.4f}')
+    D.f.write (f'\ntook {t0-t01:7.4f} to set up dicts')
+    D.f.write (f'\ntime at after setting up dicts is {t0-t00:7.4f}')
 
     if inargs('rho'):
         rho = Rho('rho',tdict['T'], neos=args.neos)
@@ -1938,8 +1948,8 @@ if __name__ == '__main__':
         idict['SnowW'] = SnowWd.data
 
     t01 = time.time()
-    D.f.write (f'\n took {(t01-t0):7.4f} to calculate variables for first time level')
-    print (f'time after calculation of first time level is {(t01-t00):7.4f}')
+    D.f.write (f'\n took {t01-t0:7.4f} to calculate variables for first time level')
+    print (f'time after calculation of first time level is {t01-t00:7.4f}')
 
     bar2d,bar3d = {},{}
 
@@ -2017,8 +2027,8 @@ if __name__ == '__main__':
     outgrids = list({xdict[tname].grid for tname in xdict.keys()})
 
     t01 = time.time()
-    D.f.write (f'\ntook {(t01-t0):7.4f} to set up output variables')
-    D.f.write (f'\ntime  after setting up output variables is {(t01-t00):7.4f}')
+    D.f.write (f'\ntook {t01-t0:7.4f} to set up output variables')
+    D.f.write (f'\ntime  after setting up output variables is {t01-t00:7.4f}')
 
     threedcdf = Create3DCDF(outgrids,meshes,
                             outpath=pjoin(args.outdir,outname),
@@ -2029,8 +2039,8 @@ if __name__ == '__main__':
     threedcdf.set_tracers(xdict,zlib=True)
 
     t01 = time.time()
-    D.f.write (f'\ntook {(t01-t0):7.4f} to set up output details into output file')
-    print (f'\ntime  after setting output details into output file is {(t01-t00):7.4f}\n')
+    D.f.write (f'\ntook {t01-t0:7.4f} to set up output details into output file')
+    print (f'\ntime  after setting output details into output file is {t01-t00:7.4f}\n')
 
     def do_on_file():
         if inargs('rho'):
@@ -2157,13 +2167,13 @@ if __name__ == '__main__':
 
         do_on_file()
         t02 = time.time()
-        D.f.write (f'\ntime  to process {pathname} is  {(t02-t01):7.4f}')
+        D.f.write (f'\ntime  to process {pathname} is  {t02-t01:7.4f}')
         D.f.write (f'\ntime  before writing to output file & after'
-               f'processing {pathname} is {(t02-t00):7.4f}')
+               f'processing {pathname} is {t02-t00:7.4f}')
         threedcdf(xdict,None,month=None,day=None)
         t03 = time.time()
-        D.f.write (f'\n time  to perform  write into output file is {(t03-t02):7.4f}')
-        D.f.write (f'\n time  after  write into output file is {(t03-t00):7.4f}\n')
+        D.f.write (f'\n time  to perform  write into output file is {t03-t02:7.4f}')
+        D.f.write (f'\n time  after  write into output file is {t03-t00:7.4f}\n')
 
 
     if not use_infile:
