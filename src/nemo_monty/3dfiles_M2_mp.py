@@ -209,7 +209,7 @@ class FextTrac(object):
                 or nemo_restart_names.get(t) in allt
             ):
                 return g
-        sys.exit("no %s for tracer %s found" % (self.keytype, t))
+        sys.exit(f"no {self.keytype} for tracer {t} found")
 
     def get_tracdict(self, tracers):
         ftdict = {}
@@ -224,7 +224,7 @@ class FextTrac(object):
                 ftdict[f] = gtracers
                 tracset -= gtracers
         if tracset:
-            sys.exit("no %s for tracers %s found" % (self.keytype, " ".join(tracset)))
+            sys.exit(f"no {self.keytype} for tracers {' '.join(tracset)} found")
         else:
             for k, v in ftdict.items():
                 print("{%s : %s}" % (k, " ".join(v)), end="")
@@ -303,7 +303,7 @@ class DCDF4(object):
             # elif isinstance(f_or_fname,basestring):
             f = netCDF4.Dataset(f_or_fname)
             f.set_auto_mask(False)
-            print("Opened %s" % f_or_fname)
+            print(f"Opened {f_or_fname}")
             self.f_keep = False
         else:
             sys.exit("neither string nor Path nor  netCDF4.Dataset")
@@ -327,11 +327,11 @@ class DCDF4(object):
         if name not in keys:
             nemonames = nemo_names.get(name)
             if not nemonames:
-                sys.exit("%s not in file or in nemonames" % name)
+                sys.exit(f"{name} not in file or in nemonames")
             else:
                 nemokeys = nemonames & set(keys)
                 if not nemokeys:
-                    sys.exit("nemonames %s not in file" % " ".join(nemonames))
+                    sys.exit(f"nemonames {' '.join(nemonames)} not in file")
                 else:
                     (nemoname,) = nemokeys
         else:
@@ -364,7 +364,7 @@ class DCDF4(object):
                         % (data.name)
                     )
                     fillvalue = x.ravel()[-1]
-                    print("trying masking by last value %g" % fillvalue)
+                    print(f"trying masking by last value {fillvalue:g}")
                     data.nos = ma.masked_equal(x, fillvalue)
             else:
                 data.nos = x
@@ -421,7 +421,7 @@ class DCDF4(object):
                 data.grid = g
                 break
         else:
-            sys.exit("could not find grid for %s" % name)
+            sys.exit(f"could not find grid for {name}")
 
         data._FillValue = None
         for att in set(
@@ -443,9 +443,9 @@ class DCDF4(object):
             data.coordinates = change_str(
                 data.coordinates,
                 time_counter="years",
-                nav_lon="glam%s" % data.grid,
-                nav_lat="gphi%s" % data.grid,
-                depth="gdep%s" % data.grid,
+                nav_lon=f"glam{data.grid}",
+                nav_lat=f"gphi{data.grid}",
+                depth=f"gdep{data.grid}",
             )
         elif "x" in data.dimensions and "y" in data.dimensions:
             data.coordinates = "glam%s gphi%s" % (2 * (data.grid,))
@@ -646,9 +646,9 @@ class Create3DCDF:
         for grid in grids:
             mesh = meshes[grid]
             if "x" in dims and "y" in dims:
-                lon = "glam%s" % grid
+                lon = f"glam{grid}"
                 lonNd = f.createVariable(lon, np.float32, htuple)
-                Ndname = "%s-longitude" % grid
+                Ndname = f"{grid}-longitude"
                 lonNd.standard_name = Ndname
                 lonNd.long_name = Ndname
                 self.lon[grid] = lon
@@ -657,14 +657,14 @@ class Create3DCDF:
                 lonNd[...] = mesh.glam[...]  # [1:-1,1:-1]
 
                 if "glambnds" in mesh._fields:
-                    lon_bnds = "%s_bounds" % lon
+                    lon_bnds = f"{lon}_bounds"
                     lonNd.bounds = lon_bnds
                     lonbndsNd = f.createVariable(lon_bnds, np.float32, htuple + vtuple)
                     lonbndsNd[...] = mesh.glambnds[...]
 
-                lat = "gphi%s" % grid
+                lat = f"gphi{grid}"
                 latNd = f.createVariable(lat, np.float32, ("y", "x"))
-                Ndname = "%s-latitude" % grid
+                Ndname = f"{grid}-latitude"
                 latNd.standard_name = Ndname
                 latNd.long_name = Ndname
                 self.lat[grid] = lat
@@ -672,15 +672,15 @@ class Create3DCDF:
                 latNd._CoordinateAxisType = "Lat"
                 latNd[...] = mesh.gphi[...]  # [1:-1,1:-1]
                 if "gphibnds" in mesh._fields:
-                    lat_bnds = "%s_bounds" % lat
+                    lat_bnds = f"{lat}_bounds"
                     latNd.bounds = lat_bnds
                     latbndsNd = f.createVariable(lat_bnds, np.float32, htuple + vtuple)
                     latbndsNd[...] = mesh.gphibnds[...]
 
                 if "z" in dims:
-                    depth = "gdep%s" % grid
+                    depth = f"gdep{grid}"
                     depthNd = f.createVariable(depth, np.float32, ("z",) + htuple)
-                    Ndname = "%s-depth" % grid
+                    Ndname = f"{grid}-depth"
                     depthNd.standard_name = Ndname
                     depthNd.long_name = Ndname
                     self.depth[grid] = depth
@@ -696,19 +696,19 @@ class Create3DCDF:
                     else:
                         sys.exit("mesh.gdep has shape", mesh.gdep.shape)
             elif "y" in dims:
-                lat = "gphi%s" % grid
+                lat = f"gphi{grid}"
                 latNd = f.createVariable(lat, np.float32, ("y"))
-                Ndname = "%s-latitude" % grid
+                Ndname = f"{grid}-latitude"
                 latNd.standard_name = Ndname
-                latNd.long_name = "northernmost %s" % Ndname
+                latNd.long_name = f"northernmost {Ndname}"
                 self.lat[grid] = lat
                 latNd.units = "degrees_north"
                 latNd._CoordinateAxisType = "Lat"
                 latNd[...] = mesh.gphi[...].max(-1)  # [1:-1,1:-1]
                 if "z" in dims:
-                    depth = "gdep%s" % grid
+                    depth = f"gdep{grid}"
                     depthNd = f.createVariable(depth, np.float32, ("z",))
-                    Ndname = "%s-depth" % grid
+                    Ndname = f"{grid}-depth"
                     depthNd.standard_name = Ndname
                     depthNd.long_name = Ndname
                     self.depth[grid] = depth
@@ -786,7 +786,7 @@ class Create3DCDF:
                 trD.keys()
             ):
                 Nd = self.f.createVariable(
-                    nemo_mean_names.get(tracer.name, tracer.name) + "_%s" % lim_att,
+                    nemo_mean_names.get(tracer.name, tracer.name) + f"_{lim_att}",
                     tracer.nos.dtype,
                     tracer.dimensions[:-2],
                     fill_value=fill_value,
@@ -797,7 +797,7 @@ class Create3DCDF:
                 for att in {"long_name", "short_name", "standard_name"} & set(
                     trD.keys()
                 ):
-                    Nd.__setattr__(att, trD[att] + "_%s" % lim_att)
+                    Nd.__setattr__(att, trD[att] + f"_{lim_att}")
                 tracer.Nd_lims[lim_att] = Nd
 
     def __call__(self, tdict, year=None, month=None, day=None):
@@ -849,8 +849,8 @@ class Ddy_sigma(object):
         self.data.grid = self.grid
         self.data.coordinates = change_str(
             self.data.coordinates,
-            glamt="glam%s" % self.data.grid,
-            gphit="gphi%s" % self.data.grid,
+            glamt=f"glam{self.data.grid}",
+            gphit=f"gphi{self.data.grid}",
         )
         self.describe(**kwargs)
 
@@ -1367,8 +1367,8 @@ class Passive_s(Z_s):
             standard_name = "Pacific Water tracer"
             self.data.units = "#"
 
-        self.data.long_name = "%s  on %s" % (long_trname, montg.d0)
-        self.data.standard_name = "%s  on %s" % (trname, montg.d0)
+        self.data.long_name = f"{long_trname}  on {montg.d0}"
+        self.data.standard_name = f"{trname}  on {montg.d0}"
         self.data.dimensions = montg.data.dimensions
         self.data.nos = ma.masked_array(np.empty([montg.n_sigma, montg.ny, montg.nx]))
 
@@ -1589,7 +1589,7 @@ class Glob3Av(object):
         for att in {"grid", "units", "online_operation"} & set(TdD.keys()):
             self.data.__setattr__(att, TdD[att])
         for att in {"long_name", "standard_name", "short_name"} & set(TdD.keys()):
-            self.data.__setattr__(att, "%s  %s" % (self.__class__.avtype, TdD[att]))
+            self.data.__setattr__(att, f"{self.__class__.avtype}  {TdD[att]}")
         self.get_dimensions()
         print("In init  of ", name, " dimensions are ", self.data.dimensions)
         self.describe()
@@ -1665,7 +1665,7 @@ class Glob3FW(Glob3Sum):
 
     def working(self, S0=35.0):
         self.S0 = S0
-        self.data.long_name = "ocean FW content within domain, ref S= %2.1f" % S0
+        self.data.long_name = f"ocean FW content within domain, ref S= {S0:2.1f}"
         self.data.standard_name = "FW content"
         self.data.short_name = "FW content"
 
@@ -1689,7 +1689,7 @@ class Zon3Av(object):
         self.data.dimensions = tuple(dimensions_list)
         coordinates_list = self.data.coordinates.split()
         coordinates_list = [c for c in coordinates_list if "glam" not in c]
-        depth_name = "gdep%s" % self.data.grid
+        depth_name = f"gdep{self.data.grid}"
         for i, c in enumerate(coordinates_list):
             if "dep" in c:
                 coordinates_list[i] = depth_name
@@ -1699,9 +1699,7 @@ class Zon3Av(object):
         self.data.coordinates = " ".join(coordinates_list)
         trD = liked.__dict__
         self.data.units = liked.units
-        self.data.standard_name = "zonal av %s" % trD.get(
-            "standard_name", self.data.name
-        )
+        self.data.standard_name = f"zonal av {trD.get('standard_name', self.data.name)}"
         self.data.long_name = "zonally averaged %s" % trD.get(
             "long_name", self.data.standard_name
         )
@@ -1834,7 +1832,7 @@ class JacobianDepth(Ddy_sigma):
         t0 = time.time()
         jacobian, self.jacobian_angle = jacobian2(self.quarter_rarea, r1.nos, r2.nos)
         t1 = time.time()
-        print("calculating jacobian took %f seconds" % (t1 - t0))
+        print(f"calculating jacobian took {t1 - t0:f} seconds")
         # jacobian = jacobian2(self.quarter_rarea,r1.nos,r2.nos)
         # t2 = time.time()
         # print 'calculating jacobian 2nd time took %f seconds' % (t2-t1)
@@ -2132,7 +2130,7 @@ if __name__ == "__main__":
 
             year1 = (passno1 - passno0) * 60 + args.years[-1]
 
-            pass_prefix = "P%s" % passes
+            pass_prefix = f"P{passes}"
         else:
             pass_prefix = ""
             passno0 = None
@@ -2162,9 +2160,9 @@ if __name__ == "__main__":
 
     filend = "_"
     if args.rtracers:
-        filend = "_%s_r" % "".join(args.rtracers)
+        filend = f"_{''.join(args.rtracers)}_r"
     if args.mtracers:
-        filend = "_%s_m" % "".join(args.mtracers)
+        filend = f"_{''.join(args.mtracers)}_m"
 
     if year0 is None:
         fileyrs = ""
@@ -2177,7 +2175,7 @@ if __name__ == "__main__":
     if args.density is not None:
         tracstr = f"{tracstr}_" + "_".join(f"{d:0.2f}" for d in args.density)
 
-    outname = "%s_%s_%s.nc" % (args.runname, fileyrs, tracstr)
+    outname = f"{args.runname}_{fileyrs}_{tracstr}.nc"
     print(outname)
 
     # sys.exit(outname)
@@ -2595,7 +2593,7 @@ if __name__ == "__main__":
                 x = xbar[:-3]
                 if nemo_dimensions[x] == 3:
                     bar3d[x].calc(idict[x], tdict["ssh"])
-                    print("%s= " % xbar, bar3d[x].data.nos)
+                    print(f"{xbar}= ", bar3d[x].data.nos)
                 elif nemo_dimensions[x] == 2:
                     bar2d[x].calc(idict[x])
 
