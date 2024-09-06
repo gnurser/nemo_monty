@@ -194,18 +194,19 @@ class DCDF4(object):
     def set_default_slice(cls,default_slice):
         cls.default_slice = default_slice
 
-    def __init__(self, f_or_fname, grid=None, slice=None, checkmask=False):
+    def __init__(self, f_or_fname, grid=None, slice=None, checkmask=False,
+                 time_index_name='time_centered'):
         if isinstance(f_or_fname,netCDF4.Dataset):
             f = f_or_fname
             self.f_keep = True
-        elif isinstance(f_or_fname,str):
+        elif isinstance(f_or_fname,str) or isinstance(f_or_fname, Path):
         # elif isinstance(f_or_fname,basestring):
             f = netCDF4.Dataset(f_or_fname)
             f.set_auto_mask(False)
             print('Opened %s' % f_or_fname)
             self.f_keep = False
         else:
-            sys.exit('neither string nor netCDF4.Dataset')
+            sys.exit('neither string nor Path nor  netCDF4.Dataset')
 
         self.f = f
         self.dimensions = f.dimensions
@@ -215,12 +216,14 @@ class DCDF4(object):
             grid =  self.grid_from_depth(self.dimensions.keys())
         self.grid = grid
         self.checkmask = checkmask
+        self.first_time = True
 
     def __getitem__(self,slice):
         self.slice = slice
 
     def getNd(self,name):
         keys = self.fv.keys()
+        print(keys)
         if name not in keys:
             nemonames = nemo_names.get(name)
             if not nemonames:
@@ -263,18 +266,38 @@ class DCDF4(object):
             else:
                 data.nos = x
         t1 = time.time()
-        print('reading %s' % data.name,'slice= ',slice,' shape= ',x.shape,
-         ' took %f seconds' % (t1-t0))
+        D.f.write(f'\nreading {data.name} slice= {slice} shape= x.shape'
+                  f' took {t1-t0:7.4f} seconds')
 
+    def get_times(self, name,time_level=0):
+        data = Data(name)
+        Nd = self.getNd(name)
+        NdD = Nd.__dict__
+        data.dimensions = Nd.dimensions
+        data._FillValue = None
+        for att in set(['coordinates','units','long_name','_FillValue',
+                        'online_operation','standard_name','short_name']) & \
+                        set(NdD.keys()):
+            data.__setattr__(att,NdD[att])
+        data.nos = Nd[time_level]
+        t1 = time.time()
+        print(f'reading {data.name} slice= {slice} shape= {data.nos.shape}'
+              f' took {t1-t0:7.4f} seconds')
+        return data
+        
+        
     def get_tracer(self,name,grid=None,dtype=None,meshes=None):
         t0 = time.time()
         data = Data(name)
         Nd = self.getNd(name)
         NdD = Nd.__dict__
         data.dimensions = self.change_tup(Nd.dimensions,dep=u'z')
+        print(data.dimensions)
         # split so depth doesn't get changed into time-counter
         data.dimensions = self.change_tup(data.dimensions,t=u'time_counter')
-        for g in (grid, NdD.get('grid'), self.gridtrac.from_tracer(name), self.grid_from_depth(data.dimensions),self.grid):
+        print(data.dimensions)
+        for g in (grid, NdD.get('grid'), self.gridtrac.from_tracer(name),
+                  self.grid_from_depth(data.dimensions),self.grid):
             if g is not None:
                 data.grid = g
                 break
@@ -283,8 +306,11 @@ class DCDF4(object):
 
         data._FillValue = None
         for att in set(['coordinates','units','long_name','_FillValue',
-                        'online_operation','standard_name','short_name']) & set(NdD.keys()):
+                        'online_operation','standard_name','short_name']) & \
+                        set(NdD.keys()):
             data.__setattr__(att,NdD[att])
+
+        print(data.coordinates)
 
         if 'coordinates' in data.__dict__.keys():
             data.coordinates = change_str(data.coordinates,
@@ -294,7 +320,7 @@ class DCDF4(object):
                                     depth=u'gdep%s' % data.grid)
         elif 'x' in data.dimensions and 'y' in data.dimensions:
             data.coordinates = u'glam%s gphi%s' % (2*(data.grid,))
-
+        print(data.coordinates)
         if self.slice is None:
             slice = self.default_slice
         else:
@@ -324,17 +350,17 @@ class DCDF4(object):
         if not self.checkmask:
             if not isinstance(data.nos, ma.masked_array):
                 dmax = data.nos.max()
-                print('%s  ' % name,end='')
+                D.f.write(f'\n{name}')
                 if dmax > 1.e12:
                     data.nos = ma.masked_equal(data.nos,dmax)
-                    print('dmax loop ',dmax,data.nos.max())
+                    D.f.write(f'dmax loop {dmax,data.nos.max()}')
                     data.nos.mask += data.nos.data==0.
                 elif data._FillValue is not None:
                     data.nos = ma.masked_equal(data.nos,data._FillValue)
-                    print('FV loop ', data._FillValue,data.nos.max())
+                    D.f.write(f'FV loop {data._FillValue,data.nos.max()}')
                 else:
                     data.nos = ma.masked_equal(data.nos,0.)
-                    print('zero loop ', data.nos.max())
+                    D.f.write(f'zero loop {data.nos.max()}')
 
                 # if oldmask is not None:
                 #     # data.nos[oldmask] = ma.masked
@@ -350,11 +376,17 @@ class DCDF4(object):
                 data.nos = ma.masked_where(data.mask, data.nos.data)
 
         t1 = time.time()
-        print('reading %s' % data.name,'slice= ',slice,' shape= ',data.nos.shape,
-          ' took %f seconds' % (t1-t0))
+        print(f'reading {data.name} slice= {slice} shape= {data.nos.shape}'
+              f' took {t1-t0:7.4f} seconds')
         return data
 
     def __call__(self,tracers, meshes=None):
+        if self.first_time:
+            cls.Q = {}
+            time_vars = set(('time_centered', 'time_centered_bounds') & self.fv.keys())
+            for t in time_vars:
+                cls.Q[t] = self.get_times(t)
+            self.first_time = False
         P = {}
         for tracer in tracers:
             P[tracer] = self.get_tracer(tracer, meshes=meshes)
@@ -367,7 +399,8 @@ class DCDF4(object):
 
 class Create3DCDF():
     def __init__(self,grids,meshes,outpath='scalars.nc',
-                 time_index_name='years',dims=['t','z','y','x'], other_dims_dict = {},density=None):
+                 time_index_name='years',dims=['t','z','y','x'],
+                 other_dims_dict = {},density=None):
         self.time_index_name = time_index_name
         f = netCDF4.Dataset(outpath,'w')
         self.f = f
@@ -390,17 +423,29 @@ class Create3DCDF():
             xNd.standard_name = "i-index"
             xNd.long_name = "NEMO i-index (Fortran numbering)"
 
-        for d,dvals in other_dims_dict.items():
-            nd = len(dvals)
-            f.createDimension(d,nd)
-            xNd = f.createVariable(d,np.float32,(d,))
-            xNd[:] = np.array(dvals)
-            xNd.standard_name = d
-            xNd.long_name = d
-            if d=='sigma':
-                xNd.units = 'kg m^-3'
-                xNd.positive = 'down'
-                xNd._CoordinateAxisType = "Depth"
+        # for d,dvals in other_dims_dict.items():
+        #     nd = len(dvals)
+        #     f.createDimension(d,nd)
+        #     xNd = f.createVariable(d,np.float32,(d,))
+        #     xNd[:] = np.array(dvals)
+        #     xNd.standard_name = d
+        #     xNd.long_name = d
+        #     if d=='sigma':
+        #         xNd.units = 'kg m^-3'
+        #         xNd.positive = 'down'
+        #         xNd._CoordinateAxisType = "Depth"
+
+        if density is not None:
+            #'r' in dims:
+            nd = len(density)
+            f.createDimension('r',nd)
+            xNd = f.createVariable('r',np.float32,('r',))
+            xNd[:] = np.array(density)
+            xNd.standard_name = 'r_b'
+            xNd.long_name = 'Boussinesq r'
+            xNd.units = 'kg m^-3'
+            xNd.positive = 'down'
+            xNd._CoordinateAxisType = "Depth"
 
         # if 'x' in dims or 'y' in dims:
         #     if 'x' in dims and 'y' in dims:
@@ -419,7 +464,7 @@ class Create3DCDF():
             vtuple = ()
 
         if 'z' in dims:
-            nz, = meshes[grids[0]].gdep_0.shape
+            nz, *_ = meshes[grids[0]].gdep_0.shape
             f.createDimension('z',nz)
             xNd = f.createVariable('z',np.int32,('z',))
             xNd[:] = np.arange(nz) + 1
@@ -544,24 +589,20 @@ class Create3DCDF():
             monthlen[-1] = 365.
             self.midmonths = dict(zip(months,midmonths))
             self.lengthmonths = dict(zip(months,monthlen))
+        elif time_index_name == 'time_centered':
+            pass
 
     def set_tracers(self,tracdict,zlib=False):
         # if fill_value==None:fill_value = netCDF4.default_fillvals['f4']
-        self.PNds ={}
+        # self.PNds ={}
         for tracer in tracdict.values():
             trD = tracer.__dict__
             if tracer._FillValue is None:
                 fill_value = netCDF4.default_fillvals[tracer.nos.dtype.str[-2:]]
             else:
                 fill_value = tracer._FillValue
-            #print(tracer.dimensions)
-            #print(self.f.variables.keys())
-            # list_dims = list(tracer.dimensions)
-            # if list_dims[0] != 't':
-            #     list_dims[0] = 't'
-            #     tracer.dimensions = tuple(list_dims)
-            #     print(tracer.dimensions)
-            # list(set(tracer.dimensions) & set(self.f.variables.keys()))
+            D.f.write(f"\n{tracer.name} {nemo_mean_names.get(tracer.name,tracer.name)}"
+                      f" {tracer.dimensions}")
             Nd = self.f.createVariable(nemo_mean_names.get(tracer.name,tracer.name),
                                        tracer.nos.dtype,tracer.dimensions,
                                        fill_value=fill_value, zlib=zlib)
@@ -570,7 +611,7 @@ class Create3DCDF():
                 Nd.__setattr__(att,trD[att])
             tracer.Nd = Nd
             tracer.Nd_lims = {}
-            for lim_att in {'median','min','max','var'} & set(trD.keys()):
+            for lim_att in {'median','min','max','var','S0','T0'} & set(trD.keys()):
                 Nd = self.f.createVariable(nemo_mean_names.get(tracer.name,tracer.name) +
                                            '_%s' % lim_att,tracer.nos.dtype,tracer.dimensions[:-2],
                                        fill_value=fill_value, zlib=zlib)
@@ -602,14 +643,14 @@ class Create3DCDF():
 
         # print 'month/year =',month,dtime
         # print self.lengthmonths
-        self.time_indexNd[l] = time_index_pp5
+        self.time_indexNd[l] = tdict['time_centered'].values()
         self.dtime_indexNd[l] = dtime
 
         #print( tdict.keys())
         for tracer in tdict.values():
             tracer.Nd[l,...] = tracer.nos[...].copy()
             trD = tracer.__dict__
-            for att in {'median','min','max','var'} & set(trD.keys()):
+            for att in {'median','min','max','var','S0','T0'} & set(trD.keys()):
                 tracer.Nd_lims[att][l,...] = getattr(tracer,att)
 
     def close(self):
@@ -710,6 +751,38 @@ class Rho(object):
         p = self.depth
         self.data.nos = ma.masked_where(self.mask,self.eos_insitu_m(self._FillValue,self.mask.ravel(),T,S,p).reshape(self.shape))
 
+class BoussinesqR2(Rho):
+    """
+    Instead of steric anomaly uses
+    r_B = rho_in_situ - rho(z,T0,S0) + rho(0,T0,S0)
+    appropriate for models with boussinesq equation of state
+    """
+    def working(self,meshes,T0=0, S0=35.,depth_km=0.):
+        if self.dtype == np.float32:
+            self.eos_insitu_m = eos.eos_insitu4_m
+            self.eos_insitu0_m = eos.eos_insitu04_m
+        elif self.dtype == np.float64:
+            self.eos_insitu_m = eos.eos_insitu4_m
+            self.eos_insitu0_m = eos.eos_insitu04_m
+
+        self.depth = meshes['t'].gdep.ravel()
+        self.T0, self.S0 = T0, S0
+        self.depth_km = depth_km
+
+    def describe(self, **kwargs):
+        self.data.long_name = 'in-situ density anomaly'
+        self.data.standard_name = 'in-situ density anomaly'
+        self.data.units = 'kg/m^3'
+
+    def calc(self,Td,Sd):
+        T,S = [x.nos.data.ravel() for x in (Td, Sd)]
+        p = self.depth
+        #print(p.shape, T.shape,S.shape,self.mask.ravel().shape)
+        self.data.nos = ma.masked_where(self.mask, \
+                                        (self.eos_insitu_m(self._FillValue, self.mask.ravel(),T,S,p) \
+        - self.eos_insitu0_m(self._FillValue,self.mask.ravel(),self.T0,self.S0,self.depth_km,p))
+                                        .reshape(self.shape))
+
 class BoussinesqR(object):
     """
     Instead of steric anomaly uses
@@ -719,7 +792,7 @@ class BoussinesqR(object):
     def __init__(self,depth,fillvalue,mask,dtype=np.float64, depth_km=0.,neos=2):
         self.dtype = dtype
         self.zt = depth.ravel()
-        print( 'in BoussinesqR shape= ',depth.shape)
+        #print( 'in BoussinesqR shape= ',depth.shape)
         self.shape = depth.shape
         eos.eos_init(neos)
         if dtype == np.float32:
@@ -735,7 +808,7 @@ class BoussinesqR(object):
         self.mask = mask.ravel()
 
     def calculate_drho0(self,T0, S0):
-        print()
+        D.f.write(' ')
         if T0 != self.last_T0 or S0 != self.last_S0:
             self.drho0 = self.eos_insitu0_m(self.fillvalue,self.mask,T0,S0,
                                         self.depth_km,self.zt).reshape(self.shape)
@@ -755,7 +828,9 @@ class BoussinesqR(object):
         return (self.rho - self.drho0).reshape(self.shape)
 
 class Montgomery(Rho):
-    def working(self,meshes,Td,T0=0,S0=35.,depth_km=0.,deltaT=None, deltaS=None, iterate_TS0='none'):
+    def working(self,meshes,Td,T0=0,S0=35.,depth_km=0.,deltaT=None, deltaS=None,
+                iterate_TS0='none', instance_dict={}):
+        self.instance_dict = instance_dict
         Td.nos = ma.masked_where(np.isnan(Td.nos), Td.nos)
         e3w = put_z_inner(meshes['w'].e3)
         e3t = put_z_inner(meshes['t'].e3)
@@ -783,7 +858,8 @@ class Montgomery(Rho):
         self.depth = depth
 
         self.T0_from_args, self.S0_from_args = T0, S0
-        self.rb = BoussinesqR(self.depth,self._FillValue,self.Tmask,self.dtype,depth_km=depth_km)
+        self.rb = BoussinesqR(self.depth,self._FillValue,self.Tmask,self.dtype,
+                              depth_km=depth_km)
         self.depth_km = depth_km
         self.iterate_TS0 = iterate_TS0
         if deltaT is not None:
@@ -796,109 +872,153 @@ class Montgomery(Rho):
         else:
             self.deltaS = 0.2
 
+
         self.grav = 9.81
         self.rrho0 = 1./1026.
         self.first_time_level = True
 
     def describe(self,d0=27.):
-        self.data.long_name = 'Boussinesq Montgomery function on r_B = %5.2f' % d0
+        self.data.long_name = 'Boussinesq Montgomery function on constant r_B'# = %5.2f' % d0
         self.data.standard_name = 'Montgomery function'
         self.data.units = 'm^2s^-2'
         self.d0 = d0
-
+        dimensions = (self.data.dimensions[0], 'r') + self.data.dimensions[1:]
+        self.data.dimensions = dimensions
+        self.ny, self.nx = self.shape[-2:]
+        self.n_sigma = len(self.d0)
+        self.data.nos = ma.masked_array(np.empty([self.n_sigma,self.ny,self.nx],
+                                                 dtype = np.float32))
+        self.active = ma.masked_array(np.empty([self.n_sigma,self.ny,self.nx],
+                                               dtype = bool))
+        self.r_above_s = ma.masked_array(np.empty([self.n_sigma,self.ny,self.nx],
+                                                  dtype = np.float32))
+        self.k_below_s = ma.masked_array(np.empty([self.n_sigma,self.ny,self.nx],
+                                                  dtype = np.int32))
+        self.T_s_lims = ma.masked_array(np.empty([self.n_sigma,4],
+                                                 dtype = np.float32))
+        self.S_s_lims = ma.masked_array(np.empty([self.n_sigma,4],
+                                                 dtype = np.float32))
+        self.z_median_km = ma.masked_array(np.empty([self.n_sigma],
+                                                 dtype = np.float32))
     def calc(self,sshd,Td,Sd):
-        d0 = self.d0
         depth = self.depth
         t0 = time.time()
         T,S = [put_z_inner(x) for x in (Td.nos.data,Sd.nos.data)]
         t1 = time.time()
-        print( 'time to reverse T & S is',t1-t0)
+        D.f.write( f'\ntime to reverse T & S is {t1-t0:7.4f}')
         self.rb.calculate_rho(T,S)
         t0 = time.time()
-        print( 'time to calculate rho is',t0-t1)
+        D.f.write( f'\ntime to calculate rho is {t0-t1:7.4f}')
 
         JM,IM = self.kmt.shape
         iterate_TS0 = self.iterate_TS0
-        print(iterate_TS0)
-        if iterate_TS0 == 'all' or iterate_TS0 == 'none' or \
-                       (iterate_TS0 == 'first' and self.first_time_level):
-            T0,S0 =  self.T0_from_args, self.S0_from_args
-        elif iterate_TS0 == 'first' and not self.first_time_level:
-            T0,S0 = self.rb.last_T0, self.rb.last_S0
+        #print(iterate_TS0)
 
-        t0 = time.time()
-        while True:
-            t2 = time.time()
-            self.rb.calculate_drho0(T0,S0)
-            t4 = time.time()
-            print( 'time to calculate drho0 is',t4-t2)
-            #print( self.kmt.min())
-            k_below_s,r_above_s,T_s,S_s,outcropmask,groundmask = \
-              [x.T for x in self.interpolate(self.kmt.T,T.T,S.T,self.rb.rho.T,self.rb.drho0.T,d0)]
+        for i,d0 in enumerate(self.d0):
+            if iterate_TS0 == 'all' or iterate_TS0 == 'none' or \
+                           (iterate_TS0 == 'first' and self.first_time_level):
+                T0,S0 =  self.T0_from_args, self.S0_from_args
+            elif iterate_TS0 == 'first' and not self.first_time_level:
+                T0,S0 = self.rb.last_T0, self.rb.last_S0
+            t0 = time.time()
+            while True:
+                t2 = time.time()
+                self.rb.calculate_drho0(T0,S0)
+                t4 = time.time()
+                D.f.write( f'\ntime to calculate drho0 is {t4-t2:7.4f}')
+                #print( self.kmt.min())
+                k_below_s,r_above_s,T_s,S_s,outcropmask,groundmask = \
+                  [x.T for x in self.interpolate(self.kmt.T,T.T,S.T,self.rb.rho.T,self.rb.drho0.T,d0)]
 
-            outcropmask,groundmask = outcropmask.astype(bool),groundmask.astype(bool)
-            t2 = time.time()
-            print( 'time to calculate k_below is',t2-t4)
-            d0mask = self.mask + groundmask + outcropmask
-            active = np.logical_not(d0mask)
-            if active.max() == False:
-                sys.exit('isopycnal always outcrops or grounds in domain')
-            T_act =  T_s[active].ravel()
-            Tmin_s,Tmax_s,Tbar = T_act.min(),T_act.max(),np.median(T_act)
-            S_act =  S_s[active].ravel()
-            Smin_s,Smax_s,Sbar = S_act.min(),S_act.max(),np.median(S_act)
-            t3 = time.time()
-            print( 'time to calculate medians is',t3-t2)
+                outcropmask,groundmask = outcropmask.astype(bool),groundmask.astype(bool)
+                t2 = time.time()
+                D.f.write( f'\ntime to calculate k_below is {t2-t4:7.4f}')
+                d0mask = self.mask + groundmask + outcropmask
+                active = np.logical_not(d0mask)
+                if active.max() == False:
+                    print(f'isopycnal r_b = {d0:5.2f} always outcrops or grounds in domain')
+                T_act =  T_s[active].ravel()
+                Tmin_s,Tmax_s,Tbar = T_act.min(),T_act.max(),np.median(T_act)
+                S_act =  S_s[active].ravel()
+                Smin_s,Smax_s,Sbar = S_act.min(),S_act.max(),np.median(S_act)
+                t3 = time.time()
+                D.f.write( f'\ntime to calculate medians is {t3-t2:7.4f}')
 
-            print( 'on density=',d0,'Tmin Tmax Tmedian=',Tmin_s,Tmax_s,Tbar)
-            print( 'on density=',d0,'Smin Smax Smedian=',Smin_s,Smax_s,Sbar)
-            print( 'on density=',d0,'T0=',T0, 'S0=', S0)
+                D.f.write( f'\non density={d0} Tmin Tmax Tmedian='
+                           f'{Tmin_s:7.4f} {Tmax_s:7.4f} {Tbar:7.4f}')
+                D.f.write( f'\non density={d0} Smin Smax Smedian='
+                           f'{Smin_s:7.4f} {Smax_s:7.4f} {Sbar:7.4f}')
+                print( f'on density= {d0:5.2f} T0= {T0:7.4f} S0={S0:7.4f}')
 
-            # if first call, iterate; then just take already set value unless specify iterate = True
-            if (iterate_TS0=='none' or iterate_TS0=='first' and not self.first_time_level) or \
-               ( abs(T0 - Tbar) < self.deltaT and abs(S0 - Sbar) < self.deltaS ):
-                break
-            else:
-                T0,S0 = Tbar,Sbar
-        t1 = time.time()
-        print( 'time to find surface is',t1-t0)
+                # if first call, iterate; then just take already set value unless specify iterate = True
+                if (iterate_TS0=='none' or iterate_TS0=='first' and not self.first_time_level) or \
+                   ( abs(T0 - Tbar) < self.deltaT and abs(S0 - Sbar) < self.deltaS ):
+                    break
+                else:
+                    T0,S0 = Tbar,Sbar
+            t1 = time.time()
+            D.f.write( f'\ntime to find surface is {t1-t0:7.4f}')
 
-        z_s,Mg = [x.T for x in self.mginterpolate(self.kmt.T,T.T,S.T,self.rb.rho.T,self.rb.drho0.T,sshd.nos.data.T,self.e3w.T,
-                                                  self.depth.T,k_below_s.T,r_above_s.T,active.T,self.depth_km,d0)]
-        t0 = time.time()
-        print( 'time to calculate Montgomery',t0-t1)
+            z_s,Mg = [x.T for x in self.mginterpolate(self.kmt.T,T.T,S.T,
+                                                      self.rb.rho.T,self.rb.drho0.T,
+                                                      sshd.nos.data.T,self.e3w.T,
+                                                      self.depth.T,
+                                                      k_below_s.T,r_above_s.T,
+                                                      active.T,self.depth_km, d0)]
+            t0 = time.time()
+            D.f.write( f'\ntime to calculate Montgomery {t0-t1:7.4f}')
 
-        self.active = active
-        self.data.nos = ma.masked_where(d0mask,Mg)
-        self.z_s = ma.masked_where(d0mask,z_s)
-        self.incrop_s = groundmask
-        self.outcrop_s = outcropmask
-        self.z_median_km = ma.median(self.z_s)*1.e-3
-        self.sig_s,self.sig_s_zmed = [ma.masked_where(d0mask,x.T) for x in self.siginterpolate(T.T,S.T,
-                                           k_below_s.T,r_above_s.T,active.T, self.depth_km,self.z_median_km)]
-        self.T_s = ma.masked_where(d0mask,T_s)
-        self.T_s_lims = [Tmin_s,Tbar,Tmax_s]
-        self.k_below_s = ma.masked_where(self.mask,k_below_s.astype(np.int8))
-        self.r_above_s = ma.masked_where(d0mask,r_above_s.astype(np.float32))
-        self.S_s = ma.masked_where(d0mask,S_s)
-        self.S_s_lims = [Smin_s,Sbar,Smax_s]
+            self.active[i] = active
+            self.data.nos[i] = ma.masked_where(d0mask,Mg)[...]
+            z_s = ma.masked_where(d0mask,z_s)
+            z_med_km = ma.median(z_s)*1.e-3
+            sig_s,sig_s_zmed = [ma.masked_where(d0mask,x.T) for x in self.siginterpolate(
+                T.T,S.T, k_below_s.T,r_above_s.T,active.T,self.depth_km,z_med_km
+            )
+                                ]
+
+            self.k_below_s[i] = ma.masked_where(self.mask,k_below_s.astype(np.int8))[...]
+            self.r_above_s[i] = ma.masked_where(d0mask,r_above_s.astype(np.float32))[...]
+            self.T_s_lims[i] =  Tmin_s,Tbar,Tmax_s, T0
+            self.S_s_lims[i] =  Smin_s,Sbar,Smax_s, S0
+            self.z_median_km[i] =  z_med_km
+
+            for name, instance in self.instance_dict.items():
+                match name:
+                    case 'outcrop_s':
+                        instance.data.nos[i] = outcropmask[...]
+                    case 'incrop_s':
+                        instance.data.nos[i] = groundmask[...]
+                    case 'z_s':
+                        instance.data.nos[i] = z_s[...]
+                    case 'sigma_s':
+                        instance.data.nos[i] = sig_s[...]
+                    case 'sigma_med_s':
+                        instance.data.nos[i] = sig_s_zmed[...]
+                    case 'T_s':
+                        instance.data.nos[i] =  ma.masked_where(d0mask,T_s)[...]
+                    case 'S_s':
+                        instance.data.nos[i] =  ma.masked_where(d0mask,S_s)[...]
 
         self.first_time_level = False
 
 
 class Z_s(Rho):
-    def describe(self,montg_instance=None):
-        self.data.long_name = 'Depth of r_B = %5.2f' % montg_instance.d0
+    def describe(self,montg=None):
+        self.data.long_name = 'Depth of r_B surface'# = %5.2f' % montg.d0
         self.data.standard_name = 'Layer depth'
         self.data.units = 'm'
+        self.data.dimensions = montg.data.dimensions
+        self.data.nos = ma.masked_array(np.empty([montg.n_sigma,montg.ny,montg.nx], dtype=np.float32))
 
-    def calc(self,montg_instance):
-        self.data.nos = montg_instance.z_s
+    def calc(self,montg):
         self.setlims()
 
     def setlims(self):
         self.data.min, self.data.median, self.data.max = \
-          self.data.nos.min(), ma.median(self.data.nos), self.data.nos.max()
+          self.data.nos.min(axis=(1,2)), ma.median(self.data.nos,axis=(1,2)), \
+          self.data.nos.max(axis=(1,2))
+
 
 class Outcrop_s(object):
     def __init__(self,name,liked,**kwargs):#,assocd,**kwargs):
@@ -910,114 +1030,135 @@ class Outcrop_s(object):
         self.data = data_like(liked,name)
         self.data._FillValue = self._FillValue
         self.describe(**kwargs)
-    def describe(self,montg_instance=None):
-        self.data.long_name = 'Outcrop region for  r_B = %5.2f' % montg_instance.d0
+
+    def describe(self,montg=None):
+        self.data.long_name = 'Outcrop region for  r_B surface'#= %5.2f' % montg.d0
         self.data.standard_name = 'Outcrop'
         self.data.units = '#'
+        self.data.dimensions = montg.data.dimensions
+        self.data.nos = ma.masked_array(np.empty([montg.n_sigma,montg.ny,montg.nx],dtype=np.uint8))
 
-    def calc(self,montg_instance):
-        self.data.nos = montg_instance.outcrop_s.astype(np.uint8)
+    def calc(self,montg):
+        pass
+        # self.data.nos = montg.outcrop_s.astype(np.uint8)
         #self.setlims()
 
 class Incrop_s(Outcrop_s):
 
-    def describe(self,montg_instance=None):
-        self.data.long_name = 'Incrop region for  r_B = %5.2f' % montg_instance.d0
+    def describe(self,montg=None):
+        self.data.long_name = 'Incrop region for  r_B surface'#= %5.2f' % montg.d0
         self.data.standard_name = 'Incrop'
         self.data.units = '#'
+        self.data.dimensions = montg.data.dimensions
+        self.data.nos = ma.masked_array(np.empty([montg.n_sigma,montg.ny,montg.nx],dtype=np.uint8))
 
-    def calc(self,montg_instance):
-        self.data.nos = montg_instance.incrop_s.astype(np.uint8)
+    def calc(self,montg):
+        pass
+        # self.data.nos = montg.incrop_s.astype(np.uint8)
         #self.setlims()
 
-class K_below_s(object):
-    def __init__(self,name,liked,**kwargs):#,assocd,**kwargs):
-        self.mask = liked.nos.mask
-        self.dtype = np.int8
-        self.shape = self.mask.shape
-        self._FillValue = -127
+# class K_below_s(object):
+#     def __init__(self,name,liked,**kwargs):#,assocd,**kwargs):
+#         self.mask = liked.nos.mask
+#         self.dtype = np.int8
+#         self.shape = self.mask.shape
+#         self._FillValue = -127
 
-        self.data = data_like(liked,name)
-        self.data._FillValue = self._FillValue
-        self.describe(**kwargs)
+#         self.data = data_like(liked,name)
+#         self.data._FillValue = self._FillValue
+#         self.describe(**kwargs)
 
-    def describe(self,montg_instance=None):
-        self.data.long_name = 'Fortran k index just above surface r_B = %5.2f' % montg_instance.d0
-        self.data.standard_name = 'Layer index'
-        self.data.units = '#'
+#     def describe(self,montg=None):
+#         self.data.long_name = 'Fortran k index just above surface r_B surface'# = %5.2f' % montg.d0
+#         self.data.standard_name = 'Layer index'
+#         self.data.units = '#'
+#         self.data.dimensions = montg.data.dimensions
+#         self.data.nos = ma.masked_array(np.empty([montg.n_sigma,montg.ny,montg.nx],dtype=int32))
 
-    def calc(self,montg_instance):
-        self.data.nos = montg_instance.k_below_s
+#     def calc(self,montg):
+#         self.data.nos = montg.k_below_s
+#         self.data.dimensions = montg.data.dimensions
 
 
 class Passive_s(Z_s):
-    def describe(self,montg_instance=None):
+    def describe(self,montg=None):
         if self.data.name=='PWT_s':
             long_trname = 'Pacific Water tracer'
             standard_name = 'Pacific Water tracer'
             self.data.units = '#'
 
-        self.data.long_name = '%s  on %s' % (long_trname, montg_instance.d0)
-        self.data.standard_name = '%s  on %s' % (trname, montg_instance.d0)
+        self.data.long_name = '%s  on %s' % (long_trname, montg.d0)
+        self.data.standard_name = '%s  on %s' % (trname, montg.d0)
+        self.data.dimensions = montg.data.dimensions
+        self.data.nos =  ma.masked_array(np.empty([montg.n_sigma,montg.ny,montg.nx]))
 
-    def calc(self,tr, montg_instance):
-    #  use method from montgomery instance, which has previously output k_lower,r_upper for w-grid as well
-        p_s = tracer_interpolate(tr.nos,montg_instance.k_below_s,montg_instance.r_above_s,montg_instance.active)
-        self.data.nos = ma.masked_where(~montg_instance.active, p_s)
+    def calc(self,tr, montg):
+        #  use method from montgomery instance, which has previously output k_lower,r_upper for w-grid as well
+        for i in range(montg.n_sigma):
+            p_s = tracer_interpolate(tr.nos,montg.k_below_s[i],montg.r_above_s[i],montg.active)
+            self.data.nos[i] = ma.masked_where(~montg.active, p_s)
         self.setlims()
 
 
 class Sigma0_s(Z_s):
-    def describe(self,montg_instance=None):
-        self.data.long_name = 'Potential density on r_B = %5.2f' % montg_instance.d0
+    def describe(self,montg=None):
+        self.data.long_name = 'Potential density on r_B surface' #= %5.2f' % montg.d0
         self.data.standard_name = 'Layer sigma0'
         self.data.units = 'kg/m^3'
+        self.data.dimensions = montg.data.dimensions
+        self.data.nos = ma.masked_array(np.empty([montg.n_sigma,montg.ny,montg.nx], dtype=np.float32))
 
-    def calc(self,montg_instance):
-        self.data.nos = montg_instance.sig_s
+
+    def calc(self,montg):
         self.setlims()
 
     def setlims(self):
         self.data.min, self.data.var, self.data.max = \
-          self.data.nos.min(), ma.var(self.data.nos), self.data.nos.max()
+          self.data.nos.min(axis=(1,2)), ma.var(self.data.nos, axis=(1,2)), self.data.nos.max(axis=(1,2))
 
 
 class SigmaMedian_s(Sigma0_s):
-    def describe(self,montg_instance=None):
-        self.data.standard_name = 'Layer sigma'
-        self.data.units = 'kg/m^3'
-
-    def calc(self,montg_instance):
-        self.data.nos = montg_instance.sig_s_zmed
+    def describe(self,montg=None):
+        self.data.standard_name = 'Layer sigma at median depth'
         self.data.long_name = \
-          'Potential density ref to %5.2f km on r_B = %5.2f' %(montg_instance.z_median_km, montg_instance.d0)
+          'Potential density ref to median r_b surface depth'#%5.2f km on r_B surface'#= %5.2f' %(montg.z_median_km, montg.d0)
+        self.data.units = 'kg/m^3'
+        self.data.dimensions = montg.data.dimensions
+        self.data.nos = ma.masked_array(np.empty([montg.n_sigma,montg.ny,montg.nx], dtype=np.float32))
+
+    def calc(self,montg):
         self.setlims()
 
 
 class T_s(Rho):
-    def describe(self,montg_instance=None):
-        self.data.long_name = 'Temperature on r_B = %5.2f' % montg_instance.d0
+    def describe(self,montg=None):
+        self.data.long_name = 'Temperature on r_B surface'#= %5.2f' % montg.d0
         self.data.standard_name = 'Layer temperature'
         self.data.units = 'deg C'
+        self.data.dimensions = montg.data.dimensions
+        self.data.nos = ma.masked_array(np.empty([montg.n_sigma,montg.ny,montg.nx], dtype=np.float32))
 
-    def calc(self,montg_instance):
-        self.data.nos = montg_instance.T_s
-        lims = montg_instance.T_s_lims
+    def calc(self,montg):
+        lims = montg.T_s_lims
         self.setlims(lims)
 
     def setlims(self,lims):
-        self.data.min, self.data.median, self.data.max = lims
+        self.data.min, self.data.median, self.data.max, self.data.T0 = lims.T
 
 class S_s(T_s):
-    def describe(self,montg_instance=None):
-        self.data.long_name = 'Salinity on r_B = %5.2f' % montg_instance.d0
+    def describe(self,montg=None):
+        self.data.long_name = 'Salinity on r_B surface'# = %5.2f' % montg.d0
         self.data.standard_name = 'Layer salinity'
         self.data.units = 'psu'
+        self.data.dimensions = montg.data.dimensions
+        self.data.nos = ma.masked_array(np.empty([montg.n_sigma,montg.ny,montg.nx], dtype=np.float32))
 
-    def calc(self,montg_instance):
-        self.data.nos = montg_instance.S_s
-        lims = montg_instance.S_s_lims
+    def calc(self,montg):
+        lims = montg.S_s_lims
         self.setlims(lims)
+
+    def setlims(self,lims):
+        self.data.min, self.data.median, self.data.max, self.data.S0 = lims.T
 
 
 
@@ -1416,6 +1557,12 @@ class JacobianAngle(JacobianDepth):
         self.data.nos = ma.masked_where(self.mask,jacobian_instance.jacobian_angle)
 
 
+class D(object):
+    @classmethod
+    def set_output_file(cls, name='timing.txt'):
+        cls.f = open(name, "w")
+
+
 if __name__ == '__main__':
     t00 = time.time()
 
@@ -1451,7 +1598,7 @@ if __name__ == '__main__':
                         nargs= '*',default=[])
 
     parser.add_argument('--density',dest='density',
-                        help='layer density for layer output',type=float,default=None)
+                        help='layer densities for layer output',nargs='*', type=float,default=None)
     parser.add_argument('--depth_km',dest='depth_km',
                         help='reference depth in km for sigma_s',type=float,default=0.)
     parser.add_argument('--TS0',dest='TS0',
@@ -1502,6 +1649,8 @@ if __name__ == '__main__':
                         help='name of restart tracers to read',
                         nargs= '*',default=[])
     args = parser.parse_args()
+
+    D.set_output_file(name="timing.txt")
 
     eos.set_eos_threads(args.nthreads)
     eos.eos_init(args.neos)
@@ -1574,9 +1723,11 @@ if __name__ == '__main__':
 
     tracstr = '_'.join([t.replace('_s','') for t in args.xtracers])
     if args.density is not None:
-        tracstr = '%s_%g' % (tracstr,args.density)
+        tracstr = f'{tracstr}_'+'_'.join(f"{d:0.2f}" for d in args.density)
 
     outname = '%s_%s_%s.nc' % (args.runname,fileyrs,tracstr)
+    print(outname)
+
     # sys.exit(outname)
 
     def make_2_slices(hbounds, wideslice=True):
@@ -1602,8 +1753,8 @@ if __name__ == '__main__':
 
     hslice,wide_hslice = make_2_slices(args.hlimits)
     t01 = time.time()
-    print (f'took {t01-t00} to set args')
-    print (f'time at after setting args is {t01-t00}')
+    D.f.write (f'\ntook {t01-t00:7.4f} to set args')
+    D.f.write (f'\ntime at after setting args is {t01-t00:7.4f}')
 
 
     fexttracm = FextTrac('mean')
@@ -1622,7 +1773,8 @@ if __name__ == '__main__':
     fexts = list(fexttracerd.keys())
     fexts.sort()
 
-    inargs = InArgs(args.xtracers,vdict= {'bp':'rho','jacobian_angle':'jacobian_depth','heatsum':'gsT','FWsum':['gsS','gsssh']},
+    inargs = InArgs(args.xtracers,vdict= {'bp':'rho','jacobian_angle':'jacobian_depth',
+                                          'heatsum':'gsT','FWsum':['gsS','gsssh']},
                     start=['zm','gs'],end='bar')
     xgrid = []
     if inargs('bp') or inargs('mont'):
@@ -1641,13 +1793,14 @@ if __name__ == '__main__':
     else:
         meshdir = args.meshdir
     meshes = gridgen.find_meshes(meshkeys,meshdir,hslice,
-                                 wide_hslice=wide_hslice,meshfile=args.meshfile, meshbnds=not args.no_bounds)
+                                 wide_hslice=wide_hslice,meshfile=args.meshfile,
+                                 meshbnds=not args.no_bounds)
     # print meshes
 
     # data = {}
     t0 = time.time()
-    print (f'took {t0-t01} to set meshes')
-    print (f'time at after setting meshes is {t0-t00}')
+    D.f.write (f'\ntook {t0-t01:7.4f} to set meshes')
+    D.f.write (f'\ntime at after setting meshes is {t0-t00:7.4f}')
     tdict = {}
     xdict = {}
 
@@ -1658,48 +1811,52 @@ if __name__ == '__main__':
         print ('\n'.join(args.infile),'\n')
         infile = args.infile.pop(0)
     else:
-        use_infile = False
+        sys.exit('program now needs infile(s)')
 
     for fext in fexts:
-        if use_infile:
-            pathname = infile[:-3]
-            while pathname[-1].isalpha():
-                pathname = pathname[:-1]
+        pathname = infile[:-3]
+        while pathname[-1].isalpha():
+            pathname = pathname[:-1]
 
-            pathname += fext + '.nc'
-        else:
-            pathname = model_run(passno=passno0,years=year0,month=months[0],fext=fext,day5=days[0])
+        pathname += fext + '.nc'
 
-
-        cdf_file = DCDF4(pathname, checkmask=args.checkmask)
+        cdf_file = DCDF4(pathname)#, checkmask=args.checkmask,
+                         #time_index_name='time_centered')
         print(fexttracerd[fext])
         P = cdf_file(fexttracerd[fext], meshes=meshes)
         tdict.update(P)
 
 
     t01 = time.time()
-    print (f'took {t01-t0} to set output file')
-    print (f'time at after setting up output file is {t01-t00}')
+    D.f.write (f'\ntook {t01-t0:7.4f} to set output file')
+    D.f.write (f'\ntime at after setting up output file is {t01-t00:7.4f}')
 
-    other_dims_dict = {}
-    for dataset in tdict.values():
-        # print dataset.__dict__
-        y = dataset.otherdims
-        # print y
-        other_dims_dict.update(y)
-    other_dims = set(other_dims_dict.keys())
+    # other_dims_dict = {}
+    # for dataset in tdict.values():
+    #     # print dataset.__dict__
+    #     y = dataset.otherdims
+    #     # print y
+    #     other_dims_dict.update(y)
+    # other_dims = set(other_dims_dict.keys())
 
     idict = tdict.copy()
 
     t0 = time.time()
-    print (f'took {t0-t01} to set up dicts')
-    print (f'time at after setting up dicts is {t0-t00}')
+    D.f.write (f'\ntook {t0-t01:7.4f} to set up dicts')
+    D.f.write (f'\ntime at after setting up dicts is {t0-t00:7.4f}')
 
     if inargs('rho'):
         rho = Rho('rho',tdict['T'], neos=args.neos)
         rho.working(meshes)
         rho.calc(tdict['T'],tdict['S'])
         idict['rho'] = rho.data
+
+    if inargs('rb'):
+        rb = BoussinesqR2('rb',tdict['T'], neos=args.neos)
+        T0,S0 = args.TS0
+        rb.working(meshes, T0=T0, S0=S0, depth_km=args.depth_km)
+        rb.calc(tdict['T'],tdict['S'])
+        idict['rb'] = rb.data
 
     if inargs('TS'):
         TS = BinTS('TS',tdict['T'])
@@ -1736,29 +1893,36 @@ if __name__ == '__main__':
         idict['bp'] = bpd.data
 
     if inargs('mont'):
-        mgd = Montgomery('mont',tdict['ssh'],neos=args.neos, d0=args.density)
-        T0,S0 = args.TS0
-        deltaT, deltaS = args.deltaTS
-        mgd.working(meshes,tdict['T'],T0=T0,S0=S0,depth_km=args.depth_km, deltaT=deltaT, deltaS=deltaS,
-                    iterate_TS0 = args.iterate_TS0)
-        mgd.calc(tdict['ssh'],tdict['T'],tdict['S'])
-        idict['mont'] = mgd.data
-
-        layerdict = {'k_s':K_below_s,'z_s':Z_s,'sigma_s':Sigma0_s,
+        all_layer_dict = {'z_s':Z_s,'sigma_s':Sigma0_s,
                      'sigma_med_s':SigmaMedian_s,'T_s':T_s,'S_s':S_s,
                      'outcrop_s':Outcrop_s, 'incrop_s':Incrop_s}
-        instancedict = {}
-        for x,y in layerdict.items():
-            if inargs(x):
-                instance = y(x,tdict['ssh'],montg_instance=mgd)
-                instance.calc(mgd)
-                instancedict[x] = instance
-                idict[x] = instance.data
+        layer_dict = {a:all_layer_dict[a] for a in all_layer_dict.keys() if inargs(a)}
+        mgd = Montgomery('mont',tdict['ssh'],neos=args.neos,
+                         d0=args.density)
+
+        instance_dict = {}
+        for x,y in layer_dict.items():
+            #perhaps use mgd here for size, dimension etc
+            instance = y(x,tdict['ssh'],montg=mgd)
+            instance_dict[x] = instance
+        #print(instance_dict.keys())
+        T0,S0 = args.TS0
+        deltaT, deltaS = args.deltaTS
+        mgd.working(meshes,tdict['T'],T0=T0,S0=S0,
+                    depth_km=args.depth_km, deltaT=deltaT, deltaS=deltaS,
+                    iterate_TS0 = args.iterate_TS0, instance_dict=instance_dict)
+        mgd.calc(tdict['ssh'],tdict['T'],tdict['S'])
+        idict['mont'] = mgd.data
+        x='mont'
+
+        for x,instance in instance_dict.items():
+            instance.calc(mgd)
+            idict[x] = instance.data
 
     passive_s_dict={}
     for x in args.passive_s:
         trname = x[:-2]
-        pp = Passive_s(x,tdict['ssh'],montg_instance=mgd)
+        pp = Passive_s(x,tdict['ssh'],montg=mgd)
         pp.calc(tdict[trname], mgd)
         passive_s_dict[x] = pp
         idict[x] = pp.data
@@ -1798,8 +1962,8 @@ if __name__ == '__main__':
         idict['SnowW'] = SnowWd.data
 
     t01 = time.time()
-    print (f'\ntook {t01-t0} to calculate variables for first time level')
-    print (f'time after calculation of first time level is {t01-t00}')
+    D.f.write (f'\n took {t01-t0:7.4f} to calculate variables for first time level')
+    print (f'time after calculation of first time level is {t01-t00:7.4f}')
 
     bar2d,bar3d = {},{}
 
@@ -1856,8 +2020,8 @@ if __name__ == '__main__':
         idict['FWsum'] = G3FWd.data
 
     t0 = time.time()
-    print (f'took {t0-t01} to calculate sums, means etc')
-    print (f'time  after calculating sums, means etc is {t01-t00}')
+    print (f'\ntook {t0-t01:7.4f} to calculate sums, means etc')
+    print (f'\ntime  after calculating sums, means etc is {t01-t00:7.4f}')
 
     for tname in args.xtracers + args.passive_s:
         # print tname
@@ -1877,127 +2041,106 @@ if __name__ == '__main__':
     outgrids = list({xdict[tname].grid for tname in xdict.keys()})
 
     t01 = time.time()
-    print (f'took {t01-t0} to set up output variables')
-    print (f'time  after setting up output variables is {t01-t00}')
+    D.f.write (f'\ntook {t01-t0:7.4f} to set up output variables')
+    D.f.write (f'\ntime  after setting up output variables is {t01-t00:7.4f}')
 
     threedcdf = Create3DCDF(outgrids,meshes,
-                          outpath=pjoin(args.outdir,outname),
-                          time_index_name='years',dims=args.dims,
-                          other_dims_dict = other_dims_dict,density = args.density)
+                            outpath=pjoin(args.outdir,outname),
+                            time_index_name='time_centered', dims=args.dims,
+                            other_dims_dict = other_dims_dict,
+                            density = args.density)
 
     threedcdf.set_tracers(xdict,zlib=True)
 
     t01 = time.time()
-    print (f'took {t01-t0} to set up output details into output file')
-    print (f'time  after setting output details into output file is {t01-t00}\n')
+    D.f.write (f'\ntook {t01-t0:7.4f} to set up output details into output file')
+    print (f'\ntime  after setting output details into output file is {t01-t00:7.4f}\n')
 
     def do_on_file():
-            if inargs('rho'):
-                rho.calc(tdict['T'],tdict['S'])
+        if inargs('rho'):
+            rho.calc(tdict['T'],tdict['S'])
 
-            if inargs('TS'):
-                TS.calc(tdict['T'],tdict['S'])
+        if inargs('rb'):
+            rb.calc(tdict['T'],tdict['S'])
 
-            if inargs('ddy_lspv'):
-                ddy_lspv.calc(tdict['lspv'],meshes)
+        if inargs('TS'):
+            TS.calc(tdict['T'],tdict['S'])
 
-            if inargs('ddysigma'):
-                ddysigma.calc(tdict['T'],tdict['S'],meshes)
+        if inargs('ddy_lspv'):
+            ddy_lspv.calc(tdict['lspv'],meshes)
 
-            if inargs('jacobian_depth'):
-                jacobian_depth.calc(tdict['T'],tdict['S'],meshes)
+        if inargs('ddysigma'):
+            ddysigma.calc(tdict['T'],tdict['S'],meshes)
 
-            if inargs('jacobian_angle'):
-                jacobian_angle.calc(jacobian_depth)
+        if inargs('jacobian_depth'):
+            jacobian_depth.calc(tdict['T'],tdict['S'],meshes)
 
-            if inargs('bp'):
-                bpd.calc(tdict['ssh'],rho.data)
+        if inargs('jacobian_angle'):
+            jacobian_angle.calc(jacobian_depth)
 
-            if inargs('mont'):
-                mgd.calc(tdict['ssh'],tdict['T'],tdict['S'])
-                for instance in instancedict.values():
-                    instance.calc(mgd)
+        if inargs('bp'):
+            bpd.calc(tdict['ssh'],rho.data)
 
-            for x in args.passive_s:
-                instance = passive_s_dict[x]
-                trname = x[:-2]
-                instance.calc(tdict[trname],mgd)
+        if inargs('mont'):
+            mgd.calc(tdict['ssh'],tdict['T'],tdict['S'])
+            for instance in instance_dict.values():
+                instance.calc(mgd)
 
-            if inargs('Sin'):
-                Sind.calc(tdict['EmP'],tdict['EmPs'],tdict['sss'])
+        for x in args.passive_s:
+            instance = passive_s_dict[x]
+            trname = x[:-2]
+            instance.calc(tdict[trname],mgd)
 
-            if inargs('Win'):
-                Wind.calc(tdict['EmP'])
+        if inargs('Sin'):
+            Sind.calc(tdict['EmP'],tdict['EmPs'],tdict['sss'])
 
-            if inargs('Bin'):
-                Bind.calc(tdict['EmPs'],tdict['Hin'],tdict['sst'],tdict['sss'])
+        if inargs('Win'):
+            Wind.calc(tdict['EmP'])
 
-            if inargs('THin'):
-                THind.calc(tdict['Hin'],tdict['EmP'],tdict['sst'])
+        if inargs('Bin'):
+            Bind.calc(tdict['EmPs'],tdict['Hin'],tdict['sst'],tdict['sss'])
 
-            if inargs('IceW'):
-                IceWd.calc(tdict['aice'],tdict['hice'])
+        if inargs('THin'):
+            THind.calc(tdict['Hin'],tdict['EmP'],tdict['sst'])
 
-            if inargs('SnowW'):
-                SnowWd.calc(tdict['aice'],tdict['hsnow'])
+        if inargs('IceW'):
+            IceWd.calc(tdict['aice'],tdict['hice'])
 
-            for xbar in inargs.arguments:
-                if xbar.endswith('bar'):
-                    x = xbar[:-3]
-                    if nemo_dimensions[x] == 3:
-                        bar3d[x].calc(idict[x],tdict['ssh'])
-                        print('%s= ' % xbar,bar3d[x].data.nos)
-                    elif nemo_dimensions[x] == 2:
-                        bar2d[x].calc(idict[x])
+        if inargs('SnowW'):
+            SnowWd.calc(tdict['aice'],tdict['hsnow'])
 
-            for zm in inargs.arguments:
-                if zm.startswith('zm'):
-                    x = zm[2:]
-                    zm3d[x].calc(idict[x],tdict.get('ssh'))
+        for xbar in inargs.arguments:
+            if xbar.endswith('bar'):
+                x = xbar[:-3]
+                if nemo_dimensions[x] == 3:
+                    bar3d[x].calc(idict[x],tdict['ssh'])
+                    print('%s= ' % xbar,bar3d[x].data.nos)
+                elif nemo_dimensions[x] == 2:
+                    bar2d[x].calc(idict[x])
 
-            for gs in inargs.arguments:
-                if gs.startswith('gs'):
-                    x = gs[2:]
-                    if len(idict[x].nos.shape)==2:
-                        gsdict[x].calc(idict[x])
-                    elif len(idict[x].nos.shape)==3:
-                        gsdict[x].calc(idict[x],tdict['ssh'])
+        for zm in inargs.arguments:
+            if zm.startswith('zm'):
+                x = zm[2:]
+                zm3d[x].calc(idict[x],tdict.get('ssh'))
 
-            if inargs('heatsum'):
-                G3Heatd.calc(idict['gsT'])
+        for gs in inargs.arguments:
+            if gs.startswith('gs'):
+                x = gs[2:]
+                if len(idict[x].nos.shape)==2:
+                    gsdict[x].calc(idict[x])
+                elif len(idict[x].nos.shape)==3:
+                    gsdict[x].calc(idict[x],tdict['ssh'])
 
-            if inargs('FWsum'):
-                G3FWd.calc(idict['gsS'],idict['gsssh'])
+        if inargs('heatsum'):
+            G3Heatd.calc(idict['gsT'])
 
-
-    def do_date(p,y,month,day,first):
-        if first:
-            first = False
-        else:
-            t01 = time.time()
-            for fext in fexts:
-                pathname = model_run(passno=p,years=y,month=month,
-                                     fext=fext,day5=day)
-                cdf_file = DCDF4(pathname)
-                for t in tdict.keys():
-                    if t in fexttracerd[fext]:
-                        cdf_file.update(idict[t])
-            do_on_file()
-            t03 = time.time()
-            print (f'time  to get data from {pathname} is {t03-t01}')
-            print (f'time  after  got data from {pathname} is {t03-t00}')
-
-        t01 = time.time()
-        print (f'time  before writing {year, month, day} is {t01-t00}')
-        threedcdf(xdict,year,month=month,day=day)
-        t03 = time.time()
-        print (f'time  to perform  write into output file is {t03-t01}')
-        print (f'time  after  write into output file is {t03-t00}')
+        if inargs('FWsum'):
+            G3FWd.calc(idict['gsS'],idict['gsssh'])
 
 
     def do_infile(infile):
         t01 = time.time()
-        print (f'time  before processing {infile} etc is {t01-t00}')
+        print (f'time  before processing {infile} etc is {t01-t00:7.4f}')
         for fext in fexts:
 
             pathname = infile[:-3]
@@ -2013,41 +2156,17 @@ if __name__ == '__main__':
 
         do_on_file()
         t02 = time.time()
-        print (f'time  to process {pathname} is  {t02-t01}')
-        print (f'time  before writing to output file & after'
-               f'processing {pathname} is {t02-t00}')
+        D.f.write (f'\ntime  to process {pathname} is  {t02-t01:7.4f}')
+        D.f.write (f'\ntime  before writing to output file & after'
+               f'processing {pathname} is {t02-t00:7.4f}')
         threedcdf(xdict,None,month=None,day=None)
         t03 = time.time()
-        print (f'time  to perform  write into output file is {t03-t02}')
-        print (f'time  after  write into output file is {t03-t00}\n')
+        D.f.write (f'\n time  to perform  write into output file is {t03-t02:7.4f}')
+        D.f.write (f'\n time  after  write into output file is {t03-t00:7.4f}\n')
 
-
-    if not use_infile:
-        first = True
-        for year in years:
-            if args.passno is not None:
-                dy = year - args.year00
-                y, p = dy % 60 + args.year00, dy/60 + passno0
-            else:
-                y = year
-                p = None
-            print(year,y, first)
-            for month in months:
-                print(y,p,month, first)
-                do_date(p,y,month,None,first)
-                print(y,p,month, first)
-
-            for day in days:
-                print(y,p,day, first)
-                # explicitly don't call to avoid double call when both month and day are None
-                if day is not None:
-                    do_date(p,y,None,day,first)
-                    print(y,p,day, first)
-    else: # infile is not None
-        threedcdf(xdict,None,month=None,day=None)
-        while args.infile:
-            infile = args.infile.pop(0)
-            do_infile(infile)
- 
+    threedcdf(xdict,None,month=None,day=None)
+    while args.infile:
+        infile = args.infile.pop(0)
+        do_infile(infile)
 
     threedcdf.close()
