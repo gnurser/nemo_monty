@@ -9,7 +9,7 @@ import netCDF4
 from argparse import ArgumentParser
 from glob import glob
 import time
-from numba import jit
+from numba import jit, njit
 import math
 
 from nemo_monty.gridstuff import RealGridStuff
@@ -19,7 +19,7 @@ from nemo_monty.interp import interp
 import bp
 
 
-# @jit
+@njit
 def tracer_interpolate(tr, k_below_s, r_above_s, active, nopython=True):
     JM, IM = active.shape
     tr_s = np.zeros([JM, IM], dtype=tr.dtype)
@@ -216,7 +216,7 @@ class FextTrac(object):
         if not tracers:
             return ftdict
         tracset = set(tracers)
-        # print 'tracers are ',' '.join(tracset)
+        print("tracers are ",' '.join(tracset))
         # print '\n',self.ftall.keys()
         for f in self.ftall.keys():
             gtracers = {t for t in tracset if self.from_tracer(t) == f}
@@ -227,7 +227,7 @@ class FextTrac(object):
             sys.exit(f"no {self.keytype} for tracers {' '.join(tracset)} found")
         else:
             for k, v in ftdict.items():
-                print("{%s : %s}" % (k, " ".join(v)), end="")
+                print(f"[{k} : {' '.join(v)}]")#, end=" ")
             # print('\n')
             return ftdict
 
@@ -261,6 +261,7 @@ class GridTrac(FextTrac):
 
 
 class DCDF4(object):
+    #timedict = {}
     @staticmethod
     def grid_from_depth(dimlist):
         depthlist = [x for x in dimlist if "dep" in x]
@@ -323,7 +324,7 @@ class DCDF4(object):
 
     def getNd(self, name):
         keys = self.fv.keys()
-        print(keys)
+        #print(keys)
         if name not in keys:
             nemonames = nemo_names.get(name)
             if not nemonames:
@@ -360,8 +361,7 @@ class DCDF4(object):
                     data.nos = ma.masked_equal(x, fillvalue)
                 else:
                     print(
-                        "warning: data %s could not be masked from ._FillValue"
-                        % (data.name)
+                        f"warning: data {data.name} could not be masked from ._FillValue"
                     )
                     fillvalue = x.ravel()[-1]
                     print(f"trying masking by last value {fillvalue:g}")
@@ -389,15 +389,18 @@ class DCDF4(object):
                 "online_operation",
                 "standard_name",
                 "short_name",
+                "calendar",
+                "bounds",
+                "time_origin"
             ]
         ) & set(NdD.keys()):
             data.__setattr__(att, NdD[att])
         data.nos = Nd[time_level]
         t1 = time.time()
-        print(
-            f"reading {data.name} slice= {slice} shape= {data.nos.shape}"
-            f" took {t1-t0:7.4f} seconds"
-        )
+        # print(
+        #     f"reading {data.name} shape= {data.nos.shape} values= {data.nos}"
+        #     f" took {t1-t0:7.4f} seconds"
+        # )
         return data
 
     def get_tracer(self, name, grid=None, dtype=None, meshes=None):
@@ -406,10 +409,10 @@ class DCDF4(object):
         Nd = self.getNd(name)
         NdD = Nd.__dict__
         data.dimensions = self.change_tup(Nd.dimensions, dep="z")
-        print(data.dimensions)
+        #print(data.dimensions)
         # split so depth doesn't get changed into time-counter
         data.dimensions = self.change_tup(data.dimensions, t="time_counter")
-        print(data.dimensions)
+        #print(data.dimensions)
         for g in (
             grid,
             NdD.get("grid"),
@@ -437,7 +440,6 @@ class DCDF4(object):
         ) & set(NdD.keys()):
             data.__setattr__(att, NdD[att])
 
-        print(data.coordinates)
 
         if "coordinates" in data.__dict__.keys():
             data.coordinates = change_str(
@@ -449,7 +451,8 @@ class DCDF4(object):
             )
         elif "x" in data.dimensions and "y" in data.dimensions:
             data.coordinates = "glam%s gphi%s" % (2 * (data.grid,))
-        print(data.coordinates)
+
+        print(f"Coordinates for {name} are {data.coordinates}; dimensions are {data.dimensions}")
         if self.slice is None:
             slice = self.default_slice
         else:
@@ -512,12 +515,14 @@ class DCDF4(object):
         return data
 
     def __call__(self, tracers, meshes=None):
-        if self.first_time:
-            cls.Q = {}
+        if not DCDF4.timekeys:
             time_vars = set(("time_centered", "time_centered_bounds") & self.fv.keys())
-            for t in time_vars:
-                cls.Q[t] = self.get_times(t)
-            self.first_time = False
+            print(f"time variables are {time_vars}")
+            DCDF4.timekeys = time_vars
+            #print(self.fv.keys())
+            if not DCDF4.timedict:
+                for t in time_vars:
+                    DCDF4.timedict[t] = self.get_times(t)
         P = {}
         for tracer in tracers:
             P[tracer] = self.get_tracer(tracer, meshes=meshes)
@@ -535,7 +540,7 @@ class Create3DCDF:
         meshes,
         outpath="scalars.nc",
         time_index_name="years",
-        dims=["t", "z", "y", "x"],
+        dims=["t", "z", "y", "x", "nbounds"],
         other_dims_dict={},
         density=None,
     ):
@@ -614,6 +619,7 @@ class Create3DCDF:
 
         if "t" in dims:
             f.createDimension("time_counter", None)
+            f.createDimension("nbounds", 2)
             xNd = f.createVariable("time_counter", np.int32, ("time_counter",))
             xNd.standard_name = "time-index"
             xNd.long_name = "NEMO dataset number from start"
@@ -621,7 +627,7 @@ class Create3DCDF:
             self.TC = 0
 
             time_indexNd = f.createVariable(
-                time_index_name, np.float32, ("time_counter",)
+                time_index_name, np.float64, ("time_counter",)
             )
             self.time_indexNd = time_indexNd
             if time_index_name == "years":
@@ -633,7 +639,7 @@ class Create3DCDF:
                 self.set_time_index(time_index_name)
 
             dtime_indexNd = f.createVariable(
-                "time_interval", np.float64, ("time_counter",)
+                "time_centered_bounds", np.float64, ("time_counter", "nbounds")
             )
             self.dtime_indexNd = dtime_indexNd
             if time_index_name == "years":
@@ -747,7 +753,19 @@ class Create3DCDF:
             self.midmonths = dict(zip(months, midmonths))
             self.lengthmonths = dict(zip(months, monthlen))
         elif time_index_name == "time_centered":
-            pass
+            tD = DCDF4.timedict["time_centered"].__dict__
+            for att in {"long_name", "short_name", "standard_name", "calendar",
+                    "units", "time_origin", "bounds"} & \
+                    set(tD.keys()):
+                #print(att, ' = ', getattr(DCDF4.timedict["time_centered"],att))
+                self.time_indexNd.__setattr__(att, tD[att])
+
+            if "time_centered_bounds" in DCDF4.timedict.keys():
+                tDb = DCDF4.timedict["time_centered_bounds"].__dict__
+                for att in {"long_name", "short_name", "standard_name", "calendar",
+                    "units", "time_origin", "bounds"} & set(tDb.keys()):
+                     #print(att, ' = ', getattr(DCDF4.timedict["time_centered"],att))
+                     self.dtime_indexNd.__setattr__(att, tDb[att])
 
     def set_tracers(self, tracdict, zlib=False):
         # if fill_value==None:fill_value = netCDF4.default_fillvals['f4']
@@ -805,24 +823,12 @@ class Create3DCDF:
         self.TCNd[l] = l
         self.TC += 1
 
-        # Unsatisfactory fix
-        if year is not None and day is None:
-            if month is None:
-                month = "y01"
-            else:
-                month = "m%02i" % month
-
-            dtime = self.lengthmonths[month]
-            yearfrac = self.midmonths[month] / 365.0
-            time_index_pp5 = np.float32(year + yearfrac)
-        else:
-            dtime = 5.0
-            time_index_pp5 = day
-
         # print 'month/year =',month,dtime
         # print self.lengthmonths
-        self.time_indexNd[l] = tdict["time_centered"].values()
-        self.dtime_indexNd[l] = dtime
+        # print(f"writing time variables {list(DCDF4.timedict.keys())} to file")
+        #for t in DCDF4.timedict.keys():
+        self.time_indexNd[l] = DCDF4.timedict["time_centered"].nos.copy()
+        self.dtime_indexNd[l] = DCDF4.timedict["time_centered_bounds"].nos.copy()
 
         # print( tdict.keys())
         for tracer in tdict.values():
@@ -1067,7 +1073,7 @@ class Montgomery(Rho):
         self.Falsemask = self.kmt < 0
 
         # interpolate4, interpolate8, mginterpolate4, mginterpolate8,siginterpolate4
-        print("in Montgomery dtype is", self.dtype)
+        # print("in Montgomery dtype is", self.dtype)
         if self.dtype == np.float32:
             self.interpolate = interp.interpolate4
             self.mginterpolate = interp.mginterpolate4
@@ -1923,7 +1929,6 @@ if __name__ == "__main__":
         type=int,
         default=[1, -1, 1, -1],
     )
-
     parser.add_argument(
         "--xlimits",
         dest="xlimits",
@@ -1940,7 +1945,6 @@ if __name__ == "__main__":
         type=int,
         default=[1, -1],
     )
-
     parser.add_argument(
         "-t",
         "--tracers",
@@ -2006,7 +2010,6 @@ if __name__ == "__main__":
         choices=["none", "first", "all"],
         default="none",
     )
-
     parser.add_argument(
         "--neos",
         dest="neos",
@@ -2028,26 +2031,6 @@ if __name__ == "__main__":
         nargs="+",
         default=["t", "z", "y", "x"],
     )
-
-    parser.add_argument("-r", dest="runname", help="Run name", default="ORCA1-N403")
-    parser.add_argument(
-        "--xroot", dest="xroots", help="Extra root directories", nargs="*", default=None
-    )
-    parser.add_argument(
-        "--refresh",
-        dest="refresh",
-        help="refresh cache?",
-        action="store_true",
-        default=False,
-    )
-    parser.add_argument(
-        "-y",
-        dest="years",
-        help="last and first years",
-        type=int,
-        nargs="+",
-        default=None,
-    )
     parser.add_argument(
         "--no_bounds",
         dest="no_bounds",
@@ -2061,30 +2044,6 @@ if __name__ == "__main__":
         help="always use mask from mask.nc",
         action="store_true",
         default=False,
-    )
-    parser.add_argument(
-        "-y0", dest="year00", help="first year of dataset", type=int, default=1948
-    )
-    parser.add_argument(
-        "--pass", dest="passno", help="pass number", type=int, nargs="*", default=None
-    )
-    parser.add_argument(
-        "-m",
-        "--months",
-        dest="months",
-        help="months to save",
-        nargs="*",
-        type=int,
-        default=None,
-    )
-    parser.add_argument(
-        "-d",
-        "--days",
-        dest="days",
-        help="days to save",
-        nargs="*",
-        type=int,
-        default=None,
     )
     parser.add_argument(
         "-o", dest="outdir", help="directory of output file", default="."
@@ -2112,71 +2071,12 @@ if __name__ == "__main__":
             print("meshdir not found from args or environment variable")
             pass
 
-    if not args.infile and args.meshdir is None:
-        model_run = findnemo.MultiDir(
-            args.runname, xroots=args.xroots, refresh=args.refresh
-        )
-
-    if args.years is None:
-        years = [None]
-        pass_prefix = ""
-        passno0 = None
-        year0 = None
-    else:
-        if args.passno is not None:
-            passno0 = args.passno[0]
-            passno1 = args.passno[-1]
-            passes = "".join(["%i" % p for p in args.passno])
-
-            year1 = (passno1 - passno0) * 60 + args.years[-1]
-
-            pass_prefix = f"P{passes}"
-        else:
-            pass_prefix = ""
-            passno0 = None
-            year1 = args.years[-1]
-
-        year0 = args.years[0]
-        nyears = year1 - year0 + 1
-        years = np.arange(nyears) + year0
-
-    allmonths = np.arange(12) + 1
-    if args.months is None:
-        months = [None]
-        fs = "y"
-    elif args.months == []:
-        months = allmonths
-        fs = "m_all"
-    else:
-        months = args.months
-        fs = "m" + "".join(["%02i" % i for i in args.months])
-
-    if args.days is None:
-        days = [None]
-        fs = "y"
-    else:
-        days = args.days
-        fs = "d" + "".join(["%04i" % i for i in args.days])
-
-    filend = "_"
-    if args.rtracers:
-        filend = f"_{''.join(args.rtracers)}_r"
-    if args.mtracers:
-        filend = f"_{''.join(args.mtracers)}_m"
-
-    if year0 is None:
-        fileyrs = ""
-    elif year0 == args.years[-1]:
-        fileyrs = "%sy%4i%s%s" % (pass_prefix, year0, fs, filend)
-    else:
-        fileyrs = "%sy%4ito%4i%s%s" % (pass_prefix, year0, args.years[-1], fs, filend)
-
     tracstr = "_".join([t.replace("_s", "") for t in args.xtracers])
     if args.density is not None:
         tracstr = f"{tracstr}_" + "_".join(f"{d:0.2f}" for d in args.density)
 
-    outname = f"{args.runname}_{fileyrs}_{tracstr}.nc"
-    print(outname)
+    outname = f"{tracstr}.nc"
+    print(f" \nWill create file {outname}")
 
     # sys.exit(outname)
 
@@ -2245,7 +2145,7 @@ if __name__ == "__main__":
         xgrid.append("v")
     if inargs("jacobian_depth"):
         xgrid.append("f")
-    print("grids are", xgrid + grids)
+    print(" grids are", xgrid + grids)
     gridgen = RealGridStuff(grids + xgrid)
     meshkeys = ["glam", "gphi", "gdep", "gdep_0", "e3", "e1", "e2", "maskutil", "mask"]
     if args.meshdir is None:
@@ -2278,6 +2178,8 @@ if __name__ == "__main__":
     else:
         sys.exit("program now needs infile(s)")
 
+    DCDF4.timekeys = []
+    DCDF4.timedict = {}
     for fext in fexts:
         pathname = infile[:-3]
         while pathname[-1].isalpha():
@@ -2290,6 +2192,7 @@ if __name__ == "__main__":
         print(fexttracerd[fext])
         P = cdf_file(fexttracerd[fext], meshes=meshes)
         tdict.update(P)
+        #print(DCDF4.timedict["time_centered"].nos)
 
     t01 = time.time()
     D.f.write(f"\ntook {t01-t0:7.4f} to set output file")
@@ -2496,8 +2399,8 @@ if __name__ == "__main__":
         idict["FWsum"] = G3FWd.data
 
     t0 = time.time()
-    print(f"\ntook {t0-t01:7.4f} to calculate sums, means etc")
-    print(f"\ntime  after calculating sums, means etc is {t01-t00:7.4f}")
+    D.f.write(f"\ntook {t0-t01:7.4f} to calculate sums, means etc")
+    D.f.write(f"\ntime  after calculating sums, means etc is {t01-t00:7.4f}")
 
     for tname in args.xtracers + args.passive_s:
         # print tname
@@ -2529,11 +2432,12 @@ if __name__ == "__main__":
         density=args.density,
     )
 
+    threedcdf.set_time_index('time_centered')
     threedcdf.set_tracers(xdict, zlib=True)
 
     t01 = time.time()
     D.f.write(f"\ntook {t01-t0:7.4f} to set up output details into output file")
-    print(f"\ntime  after setting output details into output file is {t01-t00:7.4f}\n")
+    D.f.write(f"\ntime  after setting output details into output file is {t01-t00:7.4f}\n")
 
     def do_on_file():
         if inargs("rho"):
@@ -2618,7 +2522,9 @@ if __name__ == "__main__":
 
     def do_infile(infile):
         t01 = time.time()
-        print(f"time  before processing {infile} etc is {t01-t00:7.4f}")
+        print(f"\ntime  before processing {infile} etc is {t01-t00:7.4f}")
+        DCDF4.timedict = {}
+        #print(f"{' '.join(DCDF4.timekeys)}")
         for fext in fexts:
 
             pathname = infile[:-3]
@@ -2631,6 +2537,11 @@ if __name__ == "__main__":
             for t in tdict.keys():
                 if t in fexttracerd[fext]:
                     cdf_file.update(idict[t])
+            if not DCDF4.timedict:
+                for t in DCDF4.timekeys:
+                    DCDF4.timedict[t] = cdf_file.get_times(t)
+            #print(f"extension= {fext} {[DCDF4.timedict[t] for t in DCDF4.timekeys]}")
+
 
         do_on_file()
         t02 = time.time()
@@ -2639,12 +2550,12 @@ if __name__ == "__main__":
             f"\ntime  before writing to output file & after"
             f"processing {pathname} is {t02-t00:7.4f}"
         )
-        threedcdf(xdict, None, month=None, day=None)
+        threedcdf(xdict)
         t03 = time.time()
         D.f.write(f"\n time  to perform  write into output file is {t03-t02:7.4f}")
         D.f.write(f"\n time  after  write into output file is {t03-t00:7.4f}\n")
 
-    threedcdf(xdict, None, month=None, day=None)
+    threedcdf(xdict)
     while args.infile:
         infile = args.infile.pop(0)
         do_infile(infile)
