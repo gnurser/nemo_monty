@@ -1,6 +1,6 @@
 # nemo_monty
 
-Provides executable python scripts `3dfiles_M_mp.py` (only does one time and sigma level at a time) and `3dfiles_M2_mp.py` (does a range of time levels; specifically where different time levels have different names, and also for a number of sigma levels) that can produce a variety of diagnostics from a NEMO run. In particular, it can output Montgomery function, potential density, temperature, salinity etc. on surfaces of constant Boussinesq density anomaly (see Aksenov et al., 2011).
+Provides executable python scripts `3dfiles_M_mp.py` (only does one time and sigma level at a time) and `3dfiles_M2_mp.py` (does a range of time levels and  a number of sigma levels) that can produce a variety of diagnostics from a NEMO run. In particular, it can output Montgomery function, potential density, temperature, salinity etc. on surfaces of constant Boussinesq density anomaly (see Aksenov et al., 2011).
 
 ## Pre-installation
 
