@@ -6,7 +6,7 @@ import sys
 import numpy as np
 import numpy.ma as ma
 import netCDF4
-from argparse import ArgumentParser
+from argparse import ArgumentParser, HelpFormatter
 from glob import glob
 import time
 from numba import jit, njit
@@ -1899,10 +1899,17 @@ class D(object):
         cls.f = open(name, "w")
 
 
+class SmartFormatter(HelpFormatter):
+    def _split_lines(self, text, width):
+        if text.startswith('R|'):
+            return text[2:].splitlines()
+        # this is the RawTextHelpFormatter._split_lines
+        return HelpFormatter._split_lines(self, text, width)
+
 if __name__ == "__main__":
     t00 = time.time()
 
-    parser = ArgumentParser(description="Output various NEMO diagnostics")
+    parser = ArgumentParser(description="Output various NEMO diagnostics", formatter_class = SmartFormatter)
 
     parser.add_argument(
         "--meshdir",
@@ -1920,14 +1927,6 @@ if __name__ == "__main__":
         help="list of path of  data files to read; can include wildcard expressions",
         nargs="*",
         default=[],
-    )
-    parser.add_argument(
-        "--hlimits",
-        dest="hlimits",
-        help="horizontal limits; required order is ylo, yhi,xlo,xhi",
-        nargs=4,
-        type=int,
-        default=[1, -1, 1, -1],
     )
     parser.add_argument(
         "--xlimits",
@@ -2003,11 +2002,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--iterate_TS0",
         dest="iterate_TS0",
-        help="How to iterate T0 and S0 in definition of r_b:\n"
-        "none => use T0 and S0 directly as specified from args.TS0"
-        "first => iterate T0 and S0 when doing first time-level; use these for later levels"
-        "all => iterate T0 and S0 independedently syatying from args.Ts0 on each time-level",
-        choices=["none", "first", "all"],
+        help="R|How to iterate T0 and S0 in definition of r_b:\n"
+        "none => use T0 and S0 directly as specified from args.TS0\n"
+        #"first => iterate T0 and S0 when doing first time-level; use these for later levels\n"
+        "all => iterate T0 and S0 independently starting from args.TS0 on each time and density level\n",
+        choices=["none",  "all"],#"first",
         default="none",
     )
     parser.add_argument(
@@ -2104,7 +2103,7 @@ if __name__ == "__main__":
 
         return [make_slice(hb) for hb in hboundslist]
 
-    hslice, wide_hslice = make_2_slices(args.hlimits)
+    hslice, wide_hslice = make_2_slices(args.ylimits+args.xlimits)
     t01 = time.time()
     D.f.write(f"\ntook {t01-t00:7.4f} to set args")
     D.f.write(f"\ntime at after setting args is {t01-t00:7.4f}")
