@@ -1223,6 +1223,28 @@ class Passive_s(Z_s):
         self.setlims()
 
 
+class U_s(Z_s):
+    def describe(self, montg_instance=None):
+        if self.data.name == "PWT_s":
+            long_trname = "U interpolated onto T-points"
+            standard_name = "Zonal velocity"
+            self.data.units = "m/s"
+
+        self.data.long_name = "%s  on %s" % (long_trname, montg_instance.d0)
+        self.data.standard_name = "%s  on %s" % (trname, montg_instance.d0)
+
+    def calc(self, tr, montg_instance):
+        #  use method from montgomery instance, which has previously output k_lower,r_upper for w-grid as well
+        p_s = tracer_interpolate(
+            tr.nos,
+            montg_instance.k_below_s,
+            montg_instance.r_above_s,
+            montg_instance.active,
+        )
+        self.data.nos = ma.masked_where(~montg_instance.active, p_s)
+        self.setlims()
+
+
 class Sigma0_s(Z_s):
     def describe(self, montg_instance=None):
         self.data.long_name = "Potential density on r_B = %5.2f" % montg_instance.d0
