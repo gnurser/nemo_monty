@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-from __future__ import print_function
 from os.path import join as pjoin
 import os, sys
 import numpy as np
@@ -9,43 +7,43 @@ from argparse import ArgumentParser
 from collections import namedtuple
 
 
-def make_2_slices(hbounds, wideslice=True):
+# def make_2_slices(hbounds, wideslice=True):
 
-    if wideslice:
-        widehbounds = hbounds[:]
-        for n, l in enumerate(widehbounds):
-            if n % 2 == 0:  # lower limits
-                widehbounds[n] -= 1
-            else:  # upper limits
-                if l == -1:
-                    widehbounds[n] = None
-                else:
-                    widehbounds[n] += 1
-        hboundslist = [hbounds, widehbounds]
-    else:
-        hboundslist = [hbounds]
+#     if wideslice:
+#         widehbounds = hbounds[:]
+#         for n, l in enumerate(widehbounds):
+#             if n % 2 == 0:  # lower limits
+#                 widehbounds[n] -= 1
+#             else:  # upper limits
+#                 if l == -1:
+#                     widehbounds[n] = None
+#                 else:
+#                     widehbounds[n] += 1
+#         hboundslist = [hbounds, widehbounds]
+#     else:
+#         hboundslist = [hbounds]
 
-    def make_slice(bounds2d):
-        return (
-            slice(bounds2d[0], bounds2d[1], None),
-            slice(bounds2d[2], bounds2d[3], None),
-        )
+#     def make_slice(bounds2d):
+#         return (
+#             slice(bounds2d[0], bounds2d[1], None),
+#             slice(bounds2d[2], bounds2d[3], None),
+#         )
 
-    return [make_slice(hb) for hb in hboundslist]
+#     return [make_slice(hb) for hb in hboundslist]
 
 
-def grid_from_fext(fext):
-    fextgrid = {
-        "t": {"T", "I", "P", "SIGI"},
-        "u": {"U", "U2"},
-        "v": {"V", "V2"},
-        "w": {"W", "W2", "LSPV"},
-        "f": {"PSI"},
-    }
-    for g, f in fextgrid.items():
-        if fext in f:
-            return g
-    sys.exit("no grid for fext %s found" % fext)
+# def grid_from_fext(fext):
+#     fextgrid = {
+#         "t": {"T", "I", "P", "SIGI"},
+#         "u": {"U", "U2"},
+#         "v": {"V", "V2"},
+#         "w": {"W", "W2", "LSPV"},
+#         "f": {"PSI"},
+#     }
+#     for g, f in fextgrid.items():
+#         if fext in f:
+#             return g
+#     sys.exit("no grid for fext %s found" % fext)
 
 
 class DomainFiles:

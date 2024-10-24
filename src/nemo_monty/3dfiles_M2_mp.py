@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 from os.path import join as pjoin
 import os
 import sys
@@ -22,7 +21,8 @@ import bp
 @njit
 def tracer_interpolate(tr, k_below_s, r_above_s, active, nopython=True):
     JM, IM = active.shape
-    tr_s = np.zeros([JM, IM], dtype=tr.dtype)
+    # tr_s = np.empty([JM, IM], np.float32)
+    tr_s = np.empty_like(tr[0,...])
 
     for j in range(JM):
         for i in range(IM):
@@ -139,7 +139,8 @@ nemo_names = {
     "EmPs": {"sowaflcd"},
     "sss": {"sosaline", "sss_m", "sss", "sos_abs"},
     "sst": {"sosstsst", "sstm", "sst", "tos_con"},
-    "u": {"vozocrtx", "un"},
+    "u": {"vozocrtx", "un", "uo"},
+    "v": {"vomecrty", "vn", "vo"},
     "age": {"Age"},
     "PWT": {"PWT"},
     "lspv": {"volspv"},
@@ -160,6 +161,7 @@ nemo_dimensions = {
     "sss": 2,
     "sst": 2,
     "u": 3,
+    "v": 3,
     "age": 3,
     "lspv": 3,
     "sigi": 3,
@@ -200,13 +202,17 @@ class FextTrac(object):
             }
 
         self.keytype = "fext"
+        print(vtype, self.ftall.keys())
 
     def from_tracer(self, t):
         for g, allt in self.ftall.items():
             if (
                 t in allt
-                or nemo_mean_names.get(t) in allt
-                or nemo_restart_names.get(t) in allt
+                or nemo_names.get(t) in allt
+            # if (
+                # t in allt
+                # or nemo_mean_names.get(t) in allt
+                # or nemo_restart_names.get(t) in allt
             ):
                 return g
         sys.exit(f"no {self.keytype} for tracer {t} found")
@@ -217,12 +223,14 @@ class FextTrac(object):
             return ftdict
         tracset = set(tracers)
         print("tracers are ",' '.join(tracset))
-        # print '\n',self.ftall.keys()
+        print ('\n',self.ftall.keys())
         for f in self.ftall.keys():
+            print(f)
             gtracers = {t for t in tracset if self.from_tracer(t) == f}
             if gtracers:
                 ftdict[f] = gtracers
                 tracset -= gtracers
+            # print(f, ftdict[f])
         if tracset:
             sys.exit(f"no {self.keytype} for tracers {' '.join(tracset)} found")
         else:
@@ -528,9 +536,15 @@ class DCDF4(object):
             P[tracer] = self.get_tracer(tracer, meshes=meshes)
         return P
 
-    def __del__(self):
-        if not self.f_keep:
-            self.f.close()
+    # def __del__(self):
+    #     if not self.f_keep:
+    #         if isinstance(self.f, netCDF4.Dataset):
+    #              #print(self.f)
+    #              self.f.close()
+    #         else:
+    #             if hasattr(self,'f'):
+    #                 print(self.f, 'has been deleted')
+    #                 del self.f
 
 
 class Create3DCDF:
@@ -777,11 +791,11 @@ class Create3DCDF:
             else:
                 fill_value = tracer._FillValue
             D.f.write(
-                f"\n{tracer.name} {nemo_mean_names.get(tracer.name,tracer.name)}"
+                f"\n{tracer.name} {nemo_names.get(tracer.name,tracer.name)}"
                 f" {tracer.dimensions}"
             )
             Nd = self.f.createVariable(
-                nemo_mean_names.get(tracer.name, tracer.name),
+                nemo_names.get(tracer.name, tracer.name),
                 tracer.nos.dtype,
                 tracer.dimensions,
                 fill_value=fill_value,
@@ -804,7 +818,7 @@ class Create3DCDF:
                 trD.keys()
             ):
                 Nd = self.f.createVariable(
-                    nemo_mean_names.get(tracer.name, tracer.name) + f"_{lim_att}",
+                    nemo_names.get(tracer.name, tracer.name) + f"_{lim_att}",
                     tracer.nos.dtype,
                     tracer.dimensions[:-2],
                     fill_value=fill_value,
@@ -1372,19 +1386,34 @@ class Passive_s(Z_s):
             long_trname = "Pacific Water tracer"
             standard_name = "Pacific Water tracer"
             self.data.units = "#"
+        elif self.data.name == "age_s":
+            long_trname = "Age"
+            standard_name = "Age"
+            self.data.units = "years"
 
-        self.data.long_name = f"{long_trname}  on {montg.d0}"
-        self.data.standard_name = f"{trname}  on {montg.d0}"
+        elif self.data.name == "u_s":
+            long_trname = "U velocity on density surface"
+            standard_name = "U on density surface"
+            self.data.units = "m/s"
+
+        elif self.data.name == "v_s":
+            long_trname = "V velocity on density surface"
+            standard_name = "V on density surface"
+            self.data.units = "m/s"
+
+        self.data.long_name = long_trname #f"{long_trname}  on {montg.d0}"
+        self.data.standard_name = standard_name #f"{trname}  on {montg.d0}"
         self.data.dimensions = montg.data.dimensions
         self.data.nos = ma.masked_array(np.empty([montg.n_sigma, montg.ny, montg.nx]))
 
     def calc(self, tr, montg):
         #  use method from montgomery instance, which has previously output k_lower,r_upper for w-grid as well
         for i in range(montg.n_sigma):
+            print(montg.active.shape[i])
             p_s = tracer_interpolate(
-                tr.nos, montg.k_below_s[i], montg.r_above_s[i], montg.active
+                tr.nos.data, montg.k_below_s[i].data, montg.r_above_s[i].data, montg.active[i].data
             )
-            self.data.nos[i] = ma.masked_where(~montg.active, p_s)
+            self.data.nos[i] = ma.masked_where(~montg.active[i], p_s)
         self.setlims()
 
 
@@ -2070,7 +2099,7 @@ if __name__ == "__main__":
             print("meshdir not found from args or environment variable")
             pass
 
-    tracstr = "_".join([t.replace("_s", "") for t in args.xtracers])
+    tracstr = "_".join([t.replace("_s", "") for t in (args.xtracers + args.passive_s)])
     if args.density is not None:
         tracstr = f"{tracstr}_" + "_".join(f"{d:0.2f}" for d in args.density)
 
@@ -2104,6 +2133,7 @@ if __name__ == "__main__":
         return [make_slice(hb) for hb in hboundslist]
 
     hslice, wide_hslice = make_2_slices(args.ylimits+args.xlimits)
+    print(hslice, wide_hslice)
     t01 = time.time()
     D.f.write(f"\ntook {t01-t00:7.4f} to set args")
     D.f.write(f"\ntime at after setting args is {t01-t00:7.4f}")
@@ -2111,18 +2141,23 @@ if __name__ == "__main__":
     fexttracm = FextTrac("mean")
     fexttracr = FextTrac("restart")
     gridtrac = GridTrac()
+    print("After setting gridtrac", gridtrac.ftall)
     DCDF4.set_gridtrac(gridtrac)
     DCDF4.set_default_slice((0, Ellipsis) + hslice)
 
     gridtracerd = gridtrac.get_tracdict(args.mtracers + args.rtracers)
     grids = list(gridtracerd.keys())
     grids.sort()
+    print(gridtracerd)
 
     fexttracerd = fexttracm.get_tracdict(args.mtracers)
     fexttracerr = fexttracr.get_tracdict(args.rtracers)
     fexttracerd.update(fexttracerr)
+    print(fexttracerd)
     fexts = list(fexttracerd.keys())
     fexts.sort()
+
+    print(f"fexts are: {' '.join(fexts)}")
 
     inargs = InArgs(
         args.xtracers,
@@ -2179,12 +2214,17 @@ if __name__ == "__main__":
 
     DCDF4.timekeys = []
     DCDF4.timedict = {}
-    for fext in fexts:
-        pathname = infile[:-3]
-        while pathname[-1].isalpha():
-            pathname = pathname[:-1]
 
-        pathname += fext + ".nc"
+    for fext in fexts:
+        if f"grid_T" in infile:
+            if fext == "P":
+                pathname = infile.replace("grid_T","ptrc_T")
+            else:
+                pathname = infile.replace("grid_T",f"grid_{fext}")
+                
+            print(pathname)
+        elif infile[-4:] == f"T.nc":
+            pathname = infile[:-4] + f"{fext}.nc"
 
         cdf_file = DCDF4(pathname)  # , checkmask=args.checkmask,
         # time_index_name='time_centered')
@@ -2297,6 +2337,7 @@ if __name__ == "__main__":
         for x, instance in instance_dict.items():
             instance.calc(mgd)
             idict[x] = instance.data
+
 
     passive_s_dict = {}
     for x in args.passive_s:
@@ -2525,12 +2566,15 @@ if __name__ == "__main__":
         DCDF4.timedict = {}
         #print(f"{' '.join(DCDF4.timekeys)}")
         for fext in fexts:
+            if f"grid_T" in infile:
+                if fext == "P":
+                    pathname = infile.replace("grid_T","ptrc_T")
+                else:
+                    pathname = infile.replace("grid_T",f"grid_{fext}")
 
-            pathname = infile[:-3]
-            while pathname[-1].isalpha():
-                pathname = pathname[:-1]
-
-            pathname += fext + ".nc"
+                print(pathname)
+            elif infile[-4:] == f"T.nc":
+                pathname = infile[:-4] + f"{fext}.nc"
 
             cdf_file = DCDF4(pathname)
             for t in tdict.keys():
