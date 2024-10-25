@@ -31,6 +31,11 @@ def tracer_interpolate(tr, k_below_s, r_above_s, active, nopython=True):
                 ra = r_above_s[j, i]
                 tr_s[j, i] = ra * tr[k - 1, j, i] + (1.0 - ra) * tr[k, j, i]
 
+    # Not correct where vertically interpolating U & V that exist at u & v points
+    # could average u & v onto T-points
+    # but not easy to do horizontal average of vertical interpolation so that
+    #   vertical interpolation is happening at u or v points
+    
     return tr_s
 
 
@@ -634,7 +639,7 @@ class Create3DCDF:
         if "t" in dims:
             f.createDimension("time_counter", None)
             f.createDimension("nbounds", 2)
-            xNd = f.createVariable("time_counter", np.int32, ("time_counter",))
+            xNd = f.createVariable("time_counter", np.float64, ("time_counter",))
             xNd.standard_name = "time-index"
             xNd.long_name = "NEMO dataset number from start"
             self.TCNd = xNd
@@ -773,6 +778,7 @@ class Create3DCDF:
                     set(tD.keys()):
                 #print(att, ' = ', getattr(DCDF4.timedict["time_centered"],att))
                 self.time_indexNd.__setattr__(att, tD[att])
+                self.TCNd.__setattr__(att, tD[att])
 
             if "time_centered_bounds" in DCDF4.timedict.keys():
                 tDb = DCDF4.timedict["time_centered_bounds"].__dict__
@@ -834,7 +840,7 @@ class Create3DCDF:
 
     def __call__(self, tdict, year=None, month=None, day=None):
         l = self.TC
-        self.TCNd[l] = l
+        self.TCNd[l] = DCDF4.timedict["time_centered"].nos.copy()
         self.TC += 1
 
         # print 'month/year =',month,dtime
