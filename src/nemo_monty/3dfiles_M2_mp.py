@@ -207,7 +207,6 @@ class FextTrac(object):
             }
 
         self.keytype = "fext"
-        print(vtype, self.ftall.keys())
 
     def from_tracer(self, t):
         for g, allt in self.ftall.items():
@@ -228,14 +227,12 @@ class FextTrac(object):
             return ftdict
         tracset = set(tracers)
         print("tracers are ",' '.join(tracset))
-        print ('\n',self.ftall.keys())
+        # print '\n',self.ftall.keys()
         for f in self.ftall.keys():
-            print(f)
             gtracers = {t for t in tracset if self.from_tracer(t) == f}
             if gtracers:
                 ftdict[f] = gtracers
                 tracset -= gtracers
-            # print(f, ftdict[f])
         if tracset:
             sys.exit(f"no {self.keytype} for tracers {' '.join(tracset)} found")
         else:
@@ -1415,7 +1412,7 @@ class Passive_s(Z_s):
     def calc(self, tr, montg):
         #  use method from montgomery instance, which has previously output k_lower,r_upper for w-grid as well
         for i in range(montg.n_sigma):
-            print(montg.active.shape[i])
+            # print(montg.active.shape[i])
             p_s = tracer_interpolate(
                 tr.nos.data, montg.k_below_s[i].data, montg.r_above_s[i].data, montg.active[i].data
             )
@@ -2139,7 +2136,6 @@ if __name__ == "__main__":
         return [make_slice(hb) for hb in hboundslist]
 
     hslice, wide_hslice = make_2_slices(args.ylimits+args.xlimits)
-    print(hslice, wide_hslice)
     t01 = time.time()
     D.f.write(f"\ntook {t01-t00:7.4f} to set args")
     D.f.write(f"\ntime at after setting args is {t01-t00:7.4f}")
@@ -2147,23 +2143,18 @@ if __name__ == "__main__":
     fexttracm = FextTrac("mean")
     fexttracr = FextTrac("restart")
     gridtrac = GridTrac()
-    print("After setting gridtrac", gridtrac.ftall)
     DCDF4.set_gridtrac(gridtrac)
     DCDF4.set_default_slice((0, Ellipsis) + hslice)
 
     gridtracerd = gridtrac.get_tracdict(args.mtracers + args.rtracers)
     grids = list(gridtracerd.keys())
     grids.sort()
-    print(gridtracerd)
 
     fexttracerd = fexttracm.get_tracdict(args.mtracers)
     fexttracerr = fexttracr.get_tracdict(args.rtracers)
     fexttracerd.update(fexttracerr)
-    print(fexttracerd)
     fexts = list(fexttracerd.keys())
     fexts.sort()
-
-    print(f"fexts are: {' '.join(fexts)}")
 
     inargs = InArgs(
         args.xtracers,
@@ -2234,7 +2225,7 @@ if __name__ == "__main__":
 
         cdf_file = DCDF4(pathname)  # , checkmask=args.checkmask,
         # time_index_name='time_centered')
-        print(fexttracerd[fext])
+        # print(fexttracerd[fext])
         P = cdf_file(fexttracerd[fext], meshes=meshes)
         tdict.update(P)
         #print(DCDF4.timedict["time_centered"].nos)
@@ -2578,7 +2569,6 @@ if __name__ == "__main__":
                 else:
                     pathname = infile.replace("grid_T",f"grid_{fext}")
 
-                print(pathname)
             elif infile[-4:] == f"T.nc":
                 pathname = infile[:-4] + f"{fext}.nc"
 
