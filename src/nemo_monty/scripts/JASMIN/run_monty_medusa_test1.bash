@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Invocation of 3dfiles_M2_mp.py to work on Alex's v4 MEDUSA run on JASMIN
+time 3dfiles_M2_mp.py --meshdir /gws/nopw/j04/class_vol1/CLASS-MEDUSA/OUT_eORCA12/C001/domain --meshfile mesh_mask.nc --infile /gws/nopw/j04/class_vol1/CLASS-MEDUSA/OUT_eORCA12/C001/monthly/2008/eORCA12_MED_UKESM_y2008m??_grid_T.nc  --tracers ssh T S OXY SIL DIN --xtracers z_s sigma_s sigma_med_s T_s S_s outcrop_s incrop_s mont  --density 26.5 26.8 27.0 --iterate_TS0 all --deltaTS 0.01 0.004 --TS0 2. 34.5 --nthreads 16 --neos 0 --dims t y x --ylimits 2782 3605 --xlimits 1 3823 --passive_s OXY_s  SIL_s DIN_s
