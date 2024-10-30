@@ -135,10 +135,10 @@ nemo_restart_names = {
     "aice": "frld",
 }
 nemo_names = {
-    "T": {"votemper", "tn", "potemp", "thetao_con"},
+    "T": {"votemper", "tn", "potemp", "thetao_con", "to", "thetao"},
     "mld": {"somxl010", "somxzint1"},
     "ssh": {"sossheig", "ssh_m", "ssh", "zos"},
-    "S": {"vosaline", "sn", "salin", "so_abs"},
+    "S": {"vosaline", "sn", "salin", "so_abs", "so"},
     "Hin": {"sohefldo", "hfds"},
     "EmP": {"sowaflup"},
     "EmPs": {"sowaflcd"},
@@ -148,6 +148,9 @@ nemo_names = {
     "v": {"vomecrty", "vn", "vo"},
     "age": {"Age"},
     "PWT": {"PWT"},
+    "DIN":{"DIN"},
+    "OXY":{"OXY"},
+    "SIL":{"SIL"},
     "lspv": {"volspv"},
     "sigi": {"vosigmai"},
     "hice": {"hicif"},
@@ -170,7 +173,9 @@ nemo_dimensions = {
     "age": 3,
     "lspv": 3,
     "sigi": 3,
-    "PWT": 3,
+    "DIN": 3,
+    "OXY": 3,
+    "SIL": 3,
 }
 
 
@@ -183,7 +188,7 @@ class FextTrac(object):
                 "F": {"barstf"},
                 "U": {"u"},
                 "V": {"v"},
-                "P": {"age", "PWT"},
+                "P": {"age", "PWT","DIN","OXY","SIL"},
                 "LSPV": {"lspv"},
                 "SIG2": {"sigi"},
             }
@@ -260,6 +265,9 @@ class GridTrac(FextTrac):
                 "aice",
                 "age",
                 "PWT",
+                "OXY",
+                "DIN",
+                "SIL",
                 "sigi",
             },
             "f": {"barstf"},
@@ -1403,6 +1411,21 @@ class Passive_s(Z_s):
             long_trname = "V velocity on density surface"
             standard_name = "V on density surface"
             self.data.units = "m/s"
+
+        elif self.data.name == "DIN_s":
+            long_trname = "DIN * E3T"
+            standard_name = "DIN on density surface"
+            self.data.units = "mmol-N/m2"
+
+        elif self.data.name == "OXY_s":
+            long_trname = "OXY * E3T"
+            standard_name = "OXY on density surface"
+            self.data.units = "mmol-O2/m2"
+
+        elif self.data.name == "SIL_s":
+            long_trname = "SIL * E3T"
+            standard_name = "SIL on density surface"
+            self.data.units = "mmol-Si/m2"
 
         self.data.long_name = long_trname #f"{long_trname}  on {montg.d0}"
         self.data.standard_name = standard_name #f"{trname}  on {montg.d0}"
